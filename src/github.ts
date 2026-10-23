@@ -11,6 +11,7 @@ const GRAPHQL_CROSS_REFERENCE_QUERY = `
           nodes {
             ... on CrossReferencedEvent {
               source {
+                __typename
                 ... on PullRequest {
                   number
                   title
@@ -60,6 +61,7 @@ export interface GraphqlCrossReferenceIssue {
   timelineItems?: {
     nodes?: Array<{
       source?: {
+        __typename?: string;
         number?: number;
         title?: string;
         url?: string;
@@ -199,18 +201,31 @@ export function extractMergedPullRequests(events: TimelineEvent[]): LinkedPullRe
   return [...pullRequests.values()];
 }
 
-export function extractGraphqlPullRequestReferences(issue: GraphqlCrossReferenceIssue):
-PullRequestReferences & { hasNextPage: boolean } {
+export function extractGraphqlPullRequestReferences(
+  issue: GraphqlCrossReferenceIssue,
+): PullRequestReferences & { hasNextPage: boolean; requiresRestFallback: boolean } {
   const openPullRequests = new Map<string, LinkedPullRequest>();
   const mergedPullRequests = new Map<string, LinkedPullRequest>();
+  let requiresRestFallback = false;
 
   for (const node of issue.timelineItems?.nodes ?? []) {
     const source = node?.source;
+
+    // Cross-reference sources can be hidden from an installation-scoped token.
+    // In that case REST preserves the pre-GraphQL behavior and avoids false negatives.
+    if (!source) {
+      requiresRestFallback = true;
+      continue;
+    }
+
+    if (source.__typename !== "PullRequest") continue;
+
     if (
-      typeof source?.number !== "number"
+      typeof source.number !== "number"
       || !source.title
       || !source.url
     ) {
+      requiresRestFallback = true;
       continue;
     }
 
@@ -232,6 +247,7 @@ PullRequestReferences & { hasNextPage: boolean } {
     openPullRequests: [...openPullRequests.values()],
     mergedPullRequests: [...mergedPullRequests.values()],
     hasNextPage: issue.timelineItems?.pageInfo?.hasNextPage === true,
+    requiresRestFallback,
   };
 }
 
@@ -279,7 +295,7 @@ async function fetchPullRequestReferencesGraphql(
     for (const node of data.nodes ?? []) {
       if (!node) continue;
       const extracted = extractGraphqlPullRequestReferences(node);
-      if (extracted.hasNextPage) continue;
+      if (extracted.hasNextPage || extracted.requiresRestFallback) continue;
       references.set(node.number, {
         openPullRequests: extracted.openPullRequests,
         mergedPullRequests: extracted.mergedPullRequests,
