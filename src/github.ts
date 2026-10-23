@@ -1,8 +1,14 @@
+import { DEFAULT_STARTER_LABEL } from "./config.js";
 import type { LinkedPullRequest, StarterIssue } from "./types.js";
 
 export interface RepoRef {
   owner: string;
   name: string;
+}
+
+export interface FetchStarterIssuesOptions {
+  label?: string;
+  token?: string;
 }
 
 interface TimelineEvent {
@@ -102,14 +108,16 @@ async function fetchOpenPullRequests(
 
 export async function fetchStarterIssues(
   repo: RepoRef,
-  token = process.env.GH_TOKEN,
+  options: FetchStarterIssuesOptions = {},
 ): Promise<StarterIssue[]> {
   const issues: StarterIssue[] = [];
+  const label = options.label ?? DEFAULT_STARTER_LABEL;
+  const token = options.token ?? process.env.GH_TOKEN;
 
   for (let page = 1; page <= 10; page += 1) {
     const params = new URLSearchParams({
       state: "open",
-      labels: "good first issue",
+      labels: label,
       per_page: "100",
       page: String(page),
     });
