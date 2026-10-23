@@ -50,7 +50,7 @@ PASS  #412  Fix authentication typo
 FAIL  #397  Update installation guide
       SQ001: Issue is already assigned
 FAIL  #355  Improve cache handling
-      SQ004: Open pull request #421 references this issue
+      SQ004: Open pull request https://github.com/example/project/pull/421 references this issue
 WARN  #301  Add example for foo()
       SQ003: No activity for 94 days
 
