@@ -41,16 +41,19 @@ test("inactive starter issue warns with SQ003", () => {
 });
 
 test("starter issue referenced by an open pull request fails with SQ004", () => {
+  const pullRequestUrl = "https://github.com/example/project/pull/42";
   const result = auditIssue(issue({
     open_pull_requests: [
       {
         number: 42,
         title: "Fix starter task",
-        html_url: "https://github.com/example/project/pull/42",
+        html_url: pullRequestUrl,
       },
     ],
   }), NOW);
 
   assert.equal(result.status, "fail");
-  assert.ok(result.findings.some((finding) => finding.code === "SQ004"));
+  const finding = result.findings.find((candidate) => candidate.code === "SQ004");
+  assert.ok(finding);
+  assert.match(finding.message, new RegExp(pullRequestUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
