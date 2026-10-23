@@ -26,7 +26,7 @@ function usage(): string {
     "  2  Audit completed but findings violated --fail-on",
     "",
     "Environment:",
-    "  GH_TOKEN  Optional GitHub token for a higher API rate limit and batched GraphQL lookups",
+    "  GH_TOKEN  Enables authenticated requests and SQ004 closing-PR detection",
   ].join("\n");
 }
 
@@ -62,7 +62,13 @@ async function main(): Promise<void> {
 
   const options = parseAuditOptions(rest);
   const repo = parseRepo(repoInput);
-  const issues = await fetchStarterIssues(repo, { label: options.label });
+  const token = process.env.GH_TOKEN;
+
+  if (!token) {
+    console.error("starterqueue: GH_TOKEN is not set; SQ004 closing pull request detection is skipped.");
+  }
+
+  const issues = await fetchStarterIssues(repo, { label: options.label, token });
   const results = auditIssues(issues, new Date(), { staleDays: options.staleDays });
 
   if (options.json) {
