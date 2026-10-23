@@ -102,3 +102,13 @@ test("issue blocked by a GitHub issue dependency fails with SQ006", () => {
   assert.ok(finding);
   assert.equal(finding.message, "Issue is blocked by 1 open GitHub issue dependency");
 });
+
+test("SQ006 reports multiple open GitHub issue dependencies", () => {
+  const result = auditIssue(issue({
+    issue_dependencies_summary: { blocked_by: 3 },
+  }), NOW);
+
+  const finding = result.findings.find((candidate) => candidate.code === "SQ006");
+  assert.ok(finding);
+  assert.equal(finding.message, "Issue is blocked by 3 open GitHub issue dependencies");
+});
