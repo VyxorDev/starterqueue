@@ -1,0 +1,40 @@
+name: StarterQueue
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: VyxorDev/starterqueue
+          # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
+          ref: 3f8cee64f040216de0df99b40d8246b5a03df7db
+          path: .starterqueue
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: .starterqueue/package-lock.json
+
+      - run: npm ci
+        working-directory: .starterqueue
+
+      - run: npm run build
+        working-directory: .starterqueue
+
+      - name: Audit starter queue
+        working-directory: .starterqueue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node dist/src/cli.js audit "${{ github.repository }}" --fail-on fail
