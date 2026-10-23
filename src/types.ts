@@ -1,5 +1,11 @@
 export type GitHubLabel = string | { name?: string | null };
 
+export interface LinkedPullRequest {
+  number: number;
+  title: string;
+  html_url: string;
+}
+
 export interface StarterIssue {
   number: number;
   title: string;
@@ -7,6 +13,7 @@ export interface StarterIssue {
   assignees: unknown[];
   updated_at: string;
   labels: GitHubLabel[];
+  open_pull_requests?: LinkedPullRequest[];
   pull_request?: unknown;
 }
 
