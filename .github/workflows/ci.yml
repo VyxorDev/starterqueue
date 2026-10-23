@@ -30,6 +30,8 @@ jobs:
 
       - name: Smoke test local action
         uses: ./
+        env:
+          NODE_ENV: production
         with:
           repository: VyxorDev/starterqueue
           token: ${{ github.token }}
