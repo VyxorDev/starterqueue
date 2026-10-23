@@ -100,7 +100,7 @@ node dist/src/cli.js audit owner/repo --json
 ```
 
 > [!TIP]
-> Set `GH_TOKEN` when auditing repositories with several starter issues. Authenticated runs batch pull-request cross-reference lookups through GitHub GraphQL when possible. If GraphQL is unavailable or a timeline is incomplete, StarterQueue safely falls back to the REST timeline endpoint. Tokenless runs continue to use REST.
+> Set `GH_TOKEN` when auditing repositories with several starter issues. Authenticated runs batch pull-request cross-reference lookups through GitHub GraphQL when possible. If GraphQL is unavailable, incomplete, or cannot fully reveal a cross-reference source under the token's repository scope, StarterQueue safely falls back to the REST timeline endpoint for that issue. Tokenless runs continue to use REST.
 
 ---
 
@@ -152,7 +152,7 @@ Keeping tool failures separate from audit failures makes CI logs and automation 
 
 A ready-to-copy example is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
 
-Until StarterQueue is published as a package or dedicated Marketplace Action, the workflow checks out this repository into a subdirectory, installs from the lockfile, builds the CLI, and audits the repository in which the workflow is running.
+Until StarterQueue is published as a package or dedicated Marketplace Action, the workflow checks out this repository into a subdirectory, installs from the lockfile, builds the CLI, and audits the repository in which the workflow is running. The StarterQueue checkout is pinned to an immutable reviewed commit SHA rather than floating `main`; update that SHA deliberately after reviewing newer StarterQueue changes.
 
 ```yaml
 name: StarterQueue
@@ -174,6 +174,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: VyxorDev/starterqueue
+          # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
+          ref: 3f8cee64f040216de0df99b40d8246b5a03df7db
           path: .starterqueue
 
       - uses: actions/setup-node@v4
@@ -254,10 +256,11 @@ StarterQueue keeps correctness ahead of cleverness:
 
 - The issue queue itself is fetched through GitHub REST.
 - With `GH_TOKEN`, cross-reference lookups are batched through GraphQL in small groups.
-- If a GraphQL request fails, an issue has no usable node ID, or its cross-reference timeline exceeds the batched page, StarterQueue falls back to the REST timeline endpoint for that issue.
+- A failed GraphQL batch only falls back for issues from that batch; results from earlier successful batches are retained.
+- If an issue has no usable node ID, its cross-reference timeline exceeds the batched page, or GraphQL cannot fully resolve a cross-reference source under the current token, StarterQueue falls back to the REST timeline endpoint for that issue.
 - Without a token, StarterQueue stays on the REST path.
 
-This reduces request count for normal authenticated CI runs without removing the simpler public REST fallback.
+This reduces request count for normal authenticated CI runs without removing the simpler public REST fallback or sacrificing cross-reference correctness.
 
 ---
 
