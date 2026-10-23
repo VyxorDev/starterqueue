@@ -22,6 +22,7 @@ export interface GitHubMilestone {
 
 export interface StarterIssue {
   number: number;
+  node_id?: string;
   title: string;
   html_url: string;
   body?: string | null;
