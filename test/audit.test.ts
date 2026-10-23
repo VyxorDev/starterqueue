@@ -86,3 +86,29 @@ test("contributor saying they are not ready to contribute does not trigger SQ005
   assert.equal(result.status, "pass");
   assert.ok(!result.findings.some((finding) => finding.code === "SQ005"));
 });
+
+test("issue blocked by a GitHub issue dependency fails with SQ006", () => {
+  const result = auditIssue(issue({
+    issue_dependencies_summary: {
+      blocked_by: 1,
+      total_blocked_by: 1,
+      blocking: 0,
+      total_blocking: 0,
+    },
+  }), NOW);
+
+  assert.equal(result.status, "fail");
+  const finding = result.findings.find((candidate) => candidate.code === "SQ006");
+  assert.ok(finding);
+  assert.equal(finding.message, "Issue is blocked by 1 open GitHub issue dependency");
+});
+
+test("SQ006 reports multiple open GitHub issue dependencies", () => {
+  const result = auditIssue(issue({
+    issue_dependencies_summary: { blocked_by: 3 },
+  }), NOW);
+
+  const finding = result.findings.find((candidate) => candidate.code === "SQ006");
+  assert.ok(finding);
+  assert.equal(finding.message, "Issue is blocked by 3 open GitHub issue dependencies");
+});
