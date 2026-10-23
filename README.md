@@ -11,8 +11,11 @@ StarterQueue is a small CLI for maintainers who use GitHub's `good first issue` 
 | `SQ001` | Issue already has an assignee | Fail |
 | `SQ002` | Issue has a blocked/waiting label | Fail |
 | `SQ003` | No activity for 90+ days | Warning |
+| `SQ004` | An open pull request references the issue | Fail |
 
 The goal is not to guess whether an issue is easy. The goal is to catch objective queue rot first.
+
+`SQ004` uses GitHub timeline cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
 
 ## Run locally
 
@@ -36,7 +39,7 @@ For JSON output:
 node dist/src/cli.js audit owner/repo --json
 ```
 
-Set `GH_TOKEN` if you want a higher GitHub API rate limit.
+Set `GH_TOKEN` for a higher GitHub API rate limit. It is strongly recommended for repositories with several starter issues because StarterQueue also reads each issue's timeline to find open PR references.
 
 ## Example
 
@@ -46,15 +49,17 @@ StarterQueue — Repository Audit
 PASS  #412  Fix authentication typo
 FAIL  #397  Update installation guide
       SQ001: Issue is already assigned
+FAIL  #355  Improve cache handling
+      SQ004: Open pull request https://github.com/example/project/pull/421 references this issue
 WARN  #301  Add example for foo()
       SQ003: No activity for 94 days
 
-Queue health: 1/3 clean · 1 warning · 1 failing
+Queue health: 1/4 clean · 1 warning · 2 failing
 ```
 
 ## Scope
 
-This first version intentionally stays narrow. Future rules may detect linked open pull requests, missing reproduction/context, or repository-specific queue policies—but only after the objective checks are solid.
+This version stays intentionally narrow and objective. Future rules may cover missing reproduction/context, repository-specific queue policies, and more complete detection of manually linked work—but only after the current checks are solid.
 
 ## License
 

@@ -46,6 +46,18 @@ export function auditIssue(issue: StarterIssue, now = new Date()): AuditedIssue 
     });
   }
 
+  const openPullRequests = issue.open_pull_requests ?? [];
+  if (openPullRequests.length > 0) {
+    const refs = openPullRequests.map((pullRequest) => pullRequest.html_url).join(", ");
+    findings.push({
+      code: "SQ004",
+      level: "fail",
+      message: openPullRequests.length === 1
+        ? `Open pull request ${refs} references this issue`
+        : `Open pull requests ${refs} reference this issue`,
+    });
+  }
+
   const status = findings.some((finding) => finding.level === "fail")
     ? "fail"
     : findings.some((finding) => finding.level === "warn")

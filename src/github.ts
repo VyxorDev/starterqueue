@@ -1,8 +1,21 @@
-import type { StarterIssue } from "./types.js";
+import type { LinkedPullRequest, StarterIssue } from "./types.js";
 
 export interface RepoRef {
   owner: string;
   name: string;
+}
+
+interface TimelineEvent {
+  event?: string;
+  source?: {
+    issue?: {
+      number?: number;
+      title?: string;
+      html_url?: string;
+      state?: string;
+      pull_request?: unknown;
+    };
+  };
 }
 
 export function parseRepo(input: string): RepoRef {
@@ -25,6 +38,68 @@ export function parseRepo(input: string): RepoRef {
   return { owner, name: name.replace(/\.git$/, "") };
 }
 
+function githubHeaders(token?: string): Record<string, string> {
+  return {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function fetchJson<T>(url: string, token?: string): Promise<T> {
+  const response = await fetch(url, { headers: githubHeaders(token) });
+
+  if (!response.ok) {
+    const hint = response.status === 403
+      ? " GitHub may have rate-limited the request; set GH_TOKEN and retry."
+      : "";
+    throw new Error(`GitHub API returned ${response.status}.${hint}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export function extractOpenPullRequests(events: TimelineEvent[]): LinkedPullRequest[] {
+  const pullRequests = new Map<string, LinkedPullRequest>();
+
+  for (const event of events) {
+    if (event.event !== "cross-referenced") continue;
+
+    const source = event.source?.issue;
+    if (!source?.pull_request || source.state !== "open") continue;
+    if (typeof source.number !== "number" || !source.title || !source.html_url) continue;
+
+    pullRequests.set(source.html_url, {
+      number: source.number,
+      title: source.title,
+      html_url: source.html_url,
+    });
+  }
+
+  return [...pullRequests.values()];
+}
+
+async function fetchOpenPullRequests(
+  repo: RepoRef,
+  issueNumber: number,
+  token?: string,
+): Promise<LinkedPullRequest[]> {
+  const events: TimelineEvent[] = [];
+
+  for (let page = 1; page <= 10; page += 1) {
+    const params = new URLSearchParams({ per_page: "100", page: String(page) });
+    const pageEvents = await fetchJson<TimelineEvent[]>(
+      `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues/${issueNumber}/timeline?${params}`,
+      token,
+    );
+
+    events.push(...pageEvents);
+    if (pageEvents.length < 100) break;
+  }
+
+  return extractOpenPullRequests(events);
+}
+
 export async function fetchStarterIssues(
   repo: RepoRef,
   token = process.env.GH_TOKEN,
@@ -39,29 +114,20 @@ export async function fetchStarterIssues(
       page: String(page),
     });
 
-    const response = await fetch(
+    const pageItems = await fetchJson<StarterIssue[]>(
       `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues?${params}`,
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      },
+      token,
     );
 
-    if (!response.ok) {
-      const hint = response.status === 403
-        ? " GitHub may have rate-limited the request; set GH_TOKEN and retry."
-        : "";
-      throw new Error(`GitHub API returned ${response.status}.${hint}`);
-    }
-
-    const pageItems = (await response.json()) as StarterIssue[];
     issues.push(...pageItems.filter((issue) => !issue.pull_request));
-
     if (pageItems.length < 100) break;
   }
 
-  return issues;
+  const enriched: StarterIssue[] = [];
+  for (const issue of issues) {
+    const open_pull_requests = await fetchOpenPullRequests(repo, issue.number, token);
+    enriched.push({ ...issue, open_pull_requests });
+  }
+
+  return enriched;
 }

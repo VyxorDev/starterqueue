@@ -13,6 +13,7 @@ function issue(overrides: Partial<StarterIssue> = {}): StarterIssue {
     assignees: [],
     updated_at: "2026-10-20T00:00:00Z",
     labels: [{ name: "good first issue" }],
+    open_pull_requests: [],
     ...overrides,
   };
 }
@@ -37,4 +38,22 @@ test("inactive starter issue warns with SQ003", () => {
   const result = auditIssue(issue({ updated_at: "2026-01-01T00:00:00Z" }), NOW);
   assert.equal(result.status, "warn");
   assert.ok(result.findings.some((finding) => finding.code === "SQ003"));
+});
+
+test("starter issue referenced by an open pull request fails with SQ004", () => {
+  const pullRequestUrl = "https://github.com/example/project/pull/42";
+  const result = auditIssue(issue({
+    open_pull_requests: [
+      {
+        number: 42,
+        title: "Fix starter task",
+        html_url: pullRequestUrl,
+      },
+    ],
+  }), NOW);
+
+  assert.equal(result.status, "fail");
+  const finding = result.findings.find((candidate) => candidate.code === "SQ004");
+  assert.ok(finding);
+  assert.match(finding.message, new RegExp(pullRequestUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
