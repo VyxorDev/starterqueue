@@ -13,12 +13,15 @@ StarterQueue is a small CLI for maintainers who use GitHub's `good first issue` 
 | `SQ003` | No activity for the configured threshold (90 days by default) | Warning |
 | `SQ004` | An open pull request references the issue | Fail |
 | `SQ005` | Issue text explicitly says it is not ready for contribution(s) | Fail |
+| `SQ006` | GitHub reports one or more open issue dependencies blocking it | Fail |
 
 The goal is not to guess whether an issue is easy. The goal is to catch objective queue rot first.
 
 `SQ004` uses GitHub timeline cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
 
 `SQ005` is deliberately narrow. It only catches explicit wording such as `not ready for contribution` or `not ready for contributions`; StarterQueue does not attempt subjective language scoring or infer readiness from arbitrary prose.
+
+`SQ006` uses GitHub's structured issue dependency summary. If GitHub reports that an issue is currently blocked by one or more other issues, StarterQueue fails it without parsing `Blocked by ...` text or making an additional API request.
 
 ## Run locally
 
@@ -66,10 +69,12 @@ FAIL  #397  Update installation guide
       SQ001: Issue is already assigned
 FAIL  #355  Improve cache handling
       SQ004: Open pull request https://github.com/example/project/pull/421 references this issue
+FAIL  #330  Add usage statistics administration UI
+      SQ006: Issue is blocked by 1 open GitHub issue dependency
 WARN  #301  Add example for foo()
       SQ003: No activity for 94 days
 
-Queue health: 1/4 clean · 1 warning · 2 failing
+Queue health: 1/5 clean · 1 warning · 3 failing
 ```
 
 ## Scope
