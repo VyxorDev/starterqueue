@@ -52,7 +52,7 @@ The goal is deliberately narrow: **catch obvious readiness problems without pret
 ### Rule notes
 
 **`SQ004` — open pull request references**  
-Uses GitHub timeline cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
+Uses GitHub cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
 
 **`SQ005` — explicit not-ready language**  
 Intentionally narrow. It only catches explicit wording such as `not ready for contribution` or `not ready for contributions`. StarterQueue does not perform subjective language scoring or infer readiness from arbitrary prose.
@@ -64,10 +64,10 @@ Uses GitHub's structured issue dependency summary. If GitHub reports that an iss
 Uses the issue's existing `locked` field. A locked starter issue is treated as unavailable because a newcomer cannot use the normal issue conversation to ask questions or coordinate work.
 
 **`SQ008` and `SQ009` — milestone state**  
-Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; open milestones whose due date has passed warn with `SQ009`. Closed milestones do not also receive the overdue warning.
+Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; explicitly open milestones whose due date has passed warn with `SQ009`. Closed milestones do not also receive the overdue warning.
 
 **`SQ010` — merged pull request references**  
-Reuses the same timeline data fetched for `SQ004`. Only pull requests with GitHub merge metadata are counted; closed-but-unmerged pull requests are ignored.
+Uses the same cross-reference data as `SQ004`. Only pull requests with GitHub merge metadata are counted; closed-but-unmerged pull requests are ignored.
 
 ---
 
@@ -77,12 +77,12 @@ Reuses the same timeline data fetched for `SQ004`. Only pull requests with GitHu
 
 - Node.js **20 or newer**
 - npm
-- Optional: `GH_TOKEN` for a higher GitHub API rate limit
+- Optional: `GH_TOKEN` for authenticated GitHub requests and batched cross-reference lookups
 
 ### Run locally
 
 ```bash
-npm install
+npm ci
 npm run build
 node dist/src/cli.js audit owner/repo
 ```
@@ -100,7 +100,7 @@ node dist/src/cli.js audit owner/repo --json
 ```
 
 > [!TIP]
-> Set `GH_TOKEN` when auditing repositories with several starter issues. StarterQueue reads issue timelines to detect open and merged pull request references, so authenticated requests are much less likely to hit GitHub's rate limit.
+> Set `GH_TOKEN` when auditing repositories with several starter issues. Authenticated runs batch pull-request cross-reference lookups through GitHub GraphQL when possible. If GraphQL is unavailable or a timeline is incomplete, StarterQueue safely falls back to the REST timeline endpoint. Tokenless runs continue to use REST.
 
 ---
 
@@ -112,8 +112,9 @@ StarterQueue defaults to:
 | :--- | :--- |
 | Starter label | `good first issue` |
 | Inactivity threshold | `90` days |
+| CI failure threshold | disabled |
 
-Override either value from the CLI:
+Override values from the CLI:
 
 ```bash
 node dist/src/cli.js audit owner/repo --label "starter task"
@@ -121,7 +122,105 @@ node dist/src/cli.js audit owner/repo --stale-days 45
 node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45
 ```
 
-`--stale-days` must be a positive integer. The selected label and stale threshold are also included in `--json` output.
+`--stale-days` must be a positive integer.
+
+---
+
+## Use StarterQueue in CI
+
+By default, audit findings are reported without making the process fail. Add `--fail-on` when you want StarterQueue to act as a CI gate.
+
+```bash
+# Exit 2 when at least one FAIL finding exists.
+node dist/src/cli.js audit owner/repo --fail-on fail
+
+# Exit 2 when at least one WARN or FAIL finding exists.
+node dist/src/cli.js audit owner/repo --fail-on warn
+```
+
+### Exit codes
+
+| Code | Meaning |
+| :---: | :--- |
+| `0` | Audit completed and the selected threshold was not violated |
+| `1` | StarterQueue could not complete because of CLI, configuration, or GitHub API errors |
+| `2` | Audit completed successfully, but findings violated `--fail-on` |
+
+Keeping tool failures separate from audit failures makes CI logs and automation easier to reason about.
+
+### GitHub Actions
+
+A ready-to-copy example is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
+
+Until StarterQueue is published as a package or dedicated Marketplace Action, the workflow checks out this repository into a subdirectory, installs from the lockfile, builds the CLI, and audits the repository in which the workflow is running.
+
+```yaml
+name: StarterQueue
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: VyxorDev/starterqueue
+          path: .starterqueue
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: .starterqueue/package-lock.json
+
+      - run: npm ci
+        working-directory: .starterqueue
+
+      - run: npm run build
+        working-directory: .starterqueue
+
+      - name: Audit starter queue
+        working-directory: .starterqueue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node dist/src/cli.js audit "${{ github.repository }}" --fail-on fail
+```
+
+---
+
+## JSON output contract
+
+`--json` is intended for automation, so its top-level format is versioned.
+
+```json
+{
+  "schema_version": 1,
+  "repository": "owner/repo",
+  "configuration": {
+    "label": "good first issue",
+    "stale_days": 90,
+    "fail_on": "none"
+  },
+  "summary": {
+    "total": 3,
+    "pass": 1,
+    "warn": 1,
+    "fail": 1
+  },
+  "results": []
+}
+```
+
+Breaking changes to the machine-readable top-level contract require a `schema_version` bump. New additive fields may be introduced within the same schema version when they do not invalidate existing consumers.
 
 ---
 
@@ -149,15 +248,29 @@ Queue health: 1/7 clean · 2 warning · 4 failing
 
 ---
 
+## API behavior and request cost
+
+StarterQueue keeps correctness ahead of cleverness:
+
+- The issue queue itself is fetched through GitHub REST.
+- With `GH_TOKEN`, cross-reference lookups are batched through GraphQL in small groups.
+- If a GraphQL request fails, an issue has no usable node ID, or its cross-reference timeline exceeds the batched page, StarterQueue falls back to the REST timeline endpoint for that issue.
+- Without a token, StarterQueue stays on the REST path.
+
+This reduces request count for normal authenticated CI runs without removing the simpler public REST fallback.
+
+---
+
 ## Design principles
 
 StarterQueue intentionally stays small and boring in the best way:
 
 - **Read-only** — it audits; it does not relabel or modify repository issues.
 - **Objective first** — rules are based on verifiable GitHub state, not subjective “difficulty” scoring.
-- **Low API overhead** — new checks should reuse existing GitHub responses whenever possible.
+- **Low API overhead** — reuse or batch GitHub responses whenever correctness allows it.
 - **Explainable output** — every failure or warning has a stable `SQ###` rule code.
-- **Repository-friendly** — text output works for humans; JSON output works for automation.
+- **Automation-friendly** — human text, versioned JSON, and distinct CI exit codes serve different consumers cleanly.
+- **Reproducible** — dependency versions are locked and CI installs with `npm ci`.
 
 ---
 
@@ -165,12 +278,12 @@ StarterQueue intentionally stays small and boring in the best way:
 
 StarterQueue is intentionally focused on whether a starter issue is **actually available and ready to be picked up**.
 
-Future rules may cover:
+Future work may cover:
 
-- missing reproduction or implementation context;
+- simpler distribution through a package or dedicated GitHub Action;
 - repository-specific queue policies;
 - more complete detection of manually linked work;
-- additional objective forms of starter-queue rot.
+- additional objective forms of starter-queue rot when real-world false passes justify them.
 
 New rules should stay narrow, testable, and evidence-based.
 
