@@ -40,6 +40,16 @@ test("inactive starter issue warns with SQ003", () => {
   assert.ok(result.findings.some((finding) => finding.code === "SQ003"));
 });
 
+test("custom stale threshold controls SQ003", () => {
+  const result = auditIssue(
+    issue({ updated_at: "2026-10-01T00:00:00Z" }),
+    NOW,
+    { staleDays: 14 },
+  );
+  assert.equal(result.status, "warn");
+  assert.ok(result.findings.some((finding) => finding.code === "SQ003"));
+});
+
 test("starter issue referenced by an open pull request fails with SQ004", () => {
   const pullRequestUrl = "https://github.com/example/project/pull/42";
   const result = auditIssue(issue({
