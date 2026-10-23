@@ -12,10 +12,13 @@ StarterQueue is a small CLI for maintainers who use GitHub's `good first issue` 
 | `SQ002` | Issue has a blocked/waiting label | Fail |
 | `SQ003` | No activity for the configured threshold (90 days by default) | Warning |
 | `SQ004` | An open pull request references the issue | Fail |
+| `SQ005` | Issue text explicitly says it is not ready for contribution(s) | Fail |
 
 The goal is not to guess whether an issue is easy. The goal is to catch objective queue rot first.
 
 `SQ004` uses GitHub timeline cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
+
+`SQ005` is deliberately narrow. It only catches explicit wording such as `not ready for contribution` or `not ready for contributions`; StarterQueue does not attempt subjective language scoring or infer readiness from arbitrary prose.
 
 ## Run locally
 
