@@ -6,6 +6,13 @@ export interface LinkedPullRequest {
   html_url: string;
 }
 
+export interface IssueDependenciesSummary {
+  blocked_by?: number;
+  total_blocked_by?: number;
+  blocking?: number;
+  total_blocking?: number;
+}
+
 export interface StarterIssue {
   number: number;
   title: string;
@@ -14,6 +21,7 @@ export interface StarterIssue {
   assignees: unknown[];
   updated_at: string;
   labels: GitHubLabel[];
+  issue_dependencies_summary?: IssueDependenciesSummary;
   open_pull_requests?: LinkedPullRequest[];
   pull_request?: unknown;
 }
