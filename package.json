@@ -6,14 +6,34 @@
   "bin": {
     "starterqueue": "dist/src/cli.js"
   },
+  "files": [
+    "dist/src/"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
-    "start": "node dist/src/cli.js"
+    "test:package": "node scripts/package-smoke.mjs",
+    "start": "node dist/src/cli.js",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=20"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VyxorDev/starterqueue.git"
+  },
+  "homepage": "https://github.com/VyxorDev/starterqueue#readme",
+  "bugs": {
+    "url": "https://github.com/VyxorDev/starterqueue/issues"
+  },
+  "keywords": [
+    "github",
+    "good-first-issue",
+    "maintainer",
+    "cli",
+    "open-source"
+  ],
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3"
