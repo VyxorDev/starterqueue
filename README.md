@@ -171,7 +171,7 @@ jobs:
         with:
           repository: VyxorDev/starterqueue
           # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
-          ref: 8db696f2ddeeaeac08f745ec693ef2feeed65160
+          ref: 6122489847298e2c612387d478fd339463a1857d
           path: .starterqueue
 
       - uses: actions/setup-node@v4
