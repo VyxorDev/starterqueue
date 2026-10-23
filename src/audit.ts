@@ -81,6 +81,17 @@ export function auditIssue(
     });
   }
 
+  const blockedBy = issue.issue_dependencies_summary?.blocked_by ?? 0;
+  if (blockedBy > 0) {
+    findings.push({
+      code: "SQ006",
+      level: "fail",
+      message: blockedBy === 1
+        ? "Issue is blocked by 1 open GitHub issue dependency"
+        : `Issue is blocked by ${blockedBy} open GitHub issue dependencies`,
+    });
+  }
+
   const status = findings.some((finding) => finding.level === "fail")
     ? "fail"
     : findings.some((finding) => finding.level === "warn")
