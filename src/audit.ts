@@ -48,7 +48,7 @@ export function auditIssue(issue: StarterIssue, now = new Date()): AuditedIssue 
 
   const openPullRequests = issue.open_pull_requests ?? [];
   if (openPullRequests.length > 0) {
-    const refs = openPullRequests.map((pullRequest) => `#${pullRequest.number}`).join(", ");
+    const refs = openPullRequests.map((pullRequest) => pullRequest.html_url).join(", ");
     findings.push({
       code: "SQ004",
       level: "fail",
