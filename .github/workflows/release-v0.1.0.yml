@@ -1,0 +1,63 @@
+name: Release v0.1.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'VyxorDev/starterqueue'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          test "$PACKAGE_VERSION" = "0.1.0"
+          npm pack
+          sha256sum "starterqueue-${PACKAGE_VERSION}.tgz" > SHA256SUMS.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view v0.1.0 --json isDraft --jq '.isDraft')"
+            IS_PRERELEASE="$(gh release view v0.1.0 --json isPrerelease --jq '.isPrerelease')"
+            ASSET_NAMES="$(gh release view v0.1.0 --json assets --jq '.assets[].name')"
+
+            if [[ "$IS_DRAFT" == "false" && "$IS_PRERELEASE" == "false" ]] \
+              && grep -Fxq "starterqueue-0.1.0.tgz" <<<"$ASSET_NAMES" \
+              && grep -Fxq "SHA256SUMS.txt" <<<"$ASSET_NAMES"; then
+              echo "Published GitHub release v0.1.0 already exists with the expected assets."
+              exit 0
+            fi
+
+            echo "GitHub release v0.1.0 exists but is draft, prerelease, or missing expected assets."
+            exit 1
+          fi
+
+          gh release create v0.1.0 \
+            --target "$GITHUB_SHA" \
+            --title "StarterQueue v0.1.0" \
+            --notes-file CHANGELOG.md \
+            "starterqueue-0.1.0.tgz#npm package tarball" \
+            "SHA256SUMS.txt#SHA-256 checksums"
