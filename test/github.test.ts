@@ -1,77 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  extractGraphqlPullRequestReferences,
-  extractMergedPullRequests,
-  extractOpenPullRequests,
+  extractGraphqlClosingPullRequests,
   fetchStarterIssues,
-  type GraphqlCrossReferenceIssue,
-  type TimelineEvent,
+  type GraphqlClosingPullRequestIssue,
 } from "../src/github.js";
 import type { StarterIssue } from "../src/types.js";
-
-const events: TimelineEvent[] = [
-  {
-    event: "cross-referenced",
-    source: {
-      issue: {
-        number: 41,
-        title: "Open PR",
-        html_url: "https://github.com/example/project/pull/41",
-        state: "open",
-        pull_request: { merged_at: null },
-      },
-    },
-  },
-  {
-    event: "cross-referenced",
-    source: {
-      issue: {
-        number: 42,
-        title: "Merged PR",
-        html_url: "https://github.com/example/project/pull/42",
-        state: "closed",
-        pull_request: { merged_at: "2026-10-20T00:00:00Z" },
-      },
-    },
-  },
-  {
-    event: "cross-referenced",
-    source: {
-      issue: {
-        number: 43,
-        title: "Closed unmerged PR",
-        html_url: "https://github.com/example/project/pull/43",
-        state: "closed",
-        pull_request: { merged_at: null },
-      },
-    },
-  },
-  {
-    event: "cross-referenced",
-    source: {
-      issue: {
-        number: 42,
-        title: "Merged PR",
-        html_url: "https://github.com/example/project/pull/42",
-        state: "closed",
-        pull_request: { merged_at: "2026-10-20T00:00:00Z" },
-      },
-    },
-  },
-  {
-    event: "commented",
-    source: {
-      issue: {
-        number: 44,
-        title: "Not a cross-reference",
-        html_url: "https://github.com/example/project/pull/44",
-        state: "open",
-        pull_request: { merged_at: null },
-      },
-    },
-  },
-];
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -80,139 +14,160 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
-test("timeline extraction separates open and merged pull requests", () => {
-  assert.deepEqual(extractOpenPullRequests(events).map((pullRequest) => pullRequest.number), [41]);
-  assert.deepEqual(extractMergedPullRequests(events).map((pullRequest) => pullRequest.number), [42]);
-});
+function issue(number = 1): StarterIssue {
+  return {
+    number,
+    node_id: `I_${number}`,
+    title: `Starter task ${number}`,
+    html_url: `https://github.com/example/project/issues/${number}`,
+    body: null,
+    assignees: [],
+    updated_at: "2026-10-23T00:00:00Z",
+    labels: [{ name: "good first issue" }],
+  };
+}
 
-test("closed unmerged pull requests are ignored", () => {
-  assert.ok(!extractMergedPullRequests(events).some((pullRequest) => pullRequest.number === 43));
-});
-
-test("GraphQL extraction separates and deduplicates open and merged references", () => {
-  const issue: GraphqlCrossReferenceIssue = {
+test("GraphQL closing-link extraction keeps only open PRs and deduplicates them", () => {
+  const linkedIssue: GraphqlClosingPullRequestIssue = {
     number: 7,
-    timelineItems: {
+    closedByPullRequestsReferences: {
       nodes: [
         {
-          source: {
-            __typename: "PullRequest",
-            number: 51,
-            title: "Open GraphQL PR",
-            url: "https://github.com/example/project/pull/51",
-            state: "OPEN",
-            mergedAt: null,
-          },
+          number: 51,
+          title: "Open closing PR",
+          url: "https://github.com/example/project/pull/51",
+          state: "OPEN",
         },
         {
-          source: {
-            __typename: "PullRequest",
-            number: 52,
-            title: "Merged GraphQL PR",
-            url: "https://github.com/example/project/pull/52",
-            state: "MERGED",
-            mergedAt: "2026-10-22T00:00:00Z",
-          },
+          number: 51,
+          title: "Open closing PR",
+          url: "https://github.com/example/project/pull/51",
+          state: "OPEN",
         },
         {
-          source: {
-            __typename: "PullRequest",
-            number: 52,
-            title: "Merged GraphQL PR",
-            url: "https://github.com/example/project/pull/52",
-            state: "MERGED",
-            mergedAt: "2026-10-22T00:00:00Z",
-          },
-        },
-        {
-          source: {
-            __typename: "PullRequest",
-            number: 53,
-            title: "Closed unmerged GraphQL PR",
-            url: "https://github.com/example/project/pull/53",
-            state: "CLOSED",
-            mergedAt: null,
-          },
-        },
-        {
-          source: {
-            __typename: "Issue",
-          },
+          number: 52,
+          title: "Closed PR",
+          url: "https://github.com/example/project/pull/52",
+          state: "CLOSED",
         },
       ],
       pageInfo: { hasNextPage: false },
     },
   };
 
-  const references = extractGraphqlPullRequestReferences(issue);
+  const references = extractGraphqlClosingPullRequests(linkedIssue);
   assert.deepEqual(references.openPullRequests.map((pullRequest) => pullRequest.number), [51]);
-  assert.deepEqual(references.mergedPullRequests.map((pullRequest) => pullRequest.number), [52]);
   assert.equal(references.hasNextPage, false);
-  assert.equal(references.requiresRestFallback, false);
 });
 
-test("GraphQL extraction exposes incomplete timelines for REST fallback", () => {
-  const issue: GraphqlCrossReferenceIssue = {
+test("GraphQL closing-link extraction exposes incomplete pages", () => {
+  const linkedIssue: GraphqlClosingPullRequestIssue = {
     number: 8,
-    timelineItems: {
+    closedByPullRequestsReferences: {
       nodes: [],
       pageInfo: { hasNextPage: true },
     },
   };
 
-  assert.equal(extractGraphqlPullRequestReferences(issue).hasNextPage, true);
+  assert.equal(extractGraphqlClosingPullRequests(linkedIssue).hasNextPage, true);
 });
 
-test("hidden GraphQL cross-reference sources require REST fallback", () => {
-  const issue: GraphqlCrossReferenceIssue = {
-    number: 9,
-    timelineItems: {
-      nodes: [{ source: null }],
-      pageInfo: { hasNextPage: false },
-    },
-  };
-
-  const references = extractGraphqlPullRequestReferences(issue);
-  assert.equal(references.requiresRestFallback, true);
-  assert.deepEqual(references.openPullRequests, []);
-  assert.deepEqual(references.mergedPullRequests, []);
-});
-
-test("GraphQL cross-reference sources without a type require REST fallback", () => {
-  const issue: GraphqlCrossReferenceIssue = {
-    number: 10,
-    timelineItems: {
-      nodes: [
-        {
-          source: {
-            number: 54,
-            title: "Ambiguous source",
-            url: "https://github.com/example/project/pull/54",
-          },
-        },
-      ],
-      pageInfo: { hasNextPage: false },
-    },
-  };
-
-  assert.equal(extractGraphqlPullRequestReferences(issue).requiresRestFallback, true);
-});
-
-test("successful GraphQL batches are preserved when a later batch fails", async () => {
+test("tokenless audits do not guess pull request links from REST timelines", async () => {
   const originalFetch = globalThis.fetch;
-  const starterIssues: StarterIssue[] = Array.from({ length: 26 }, (_, index) => ({
-    number: index + 1,
-    node_id: `I_${index + 1}`,
-    title: `Starter task ${index + 1}`,
-    html_url: `https://github.com/example/project/issues/${index + 1}`,
-    body: null,
-    assignees: [],
-    updated_at: "2026-10-23T00:00:00Z",
-    labels: [{ name: "good first issue" }],
-  }));
+  const originalToken = process.env.GH_TOKEN;
+  delete process.env.GH_TOKEN;
+  const requests: string[] = [];
 
-  let graphqlCalls = 0;
-  const restTimelineIssues: number[] = [];
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    requests.push(url);
+
+    if (url.startsWith("https://api.github.com/repos/example/project/issues?")) {
+      return jsonResponse([issue()]);
+    }
+
+    throw new Error(`Unexpected tokenless request: ${url}`);
+  };
+
+  try {
+    const results = await fetchStarterIssues({ owner: "example", name: "project" });
+    assert.equal(results.length, 1);
+    assert.deepEqual(results[0]?.open_pull_requests, []);
+    assert.equal(requests.length, 1);
+    assert.ok(!requests.some((url) => url.includes("/timeline")));
+    assert.ok(!requests.some((url) => url.endsWith("/graphql")));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = originalToken;
+  }
+});
+
+test("authenticated audits use GitHub closing PR links for SQ004 data", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    requests.push(url);
+
+    if (url.startsWith("https://api.github.com/repos/example/project/issues?")) {
+      return jsonResponse([issue()]);
+    }
+
+    if (url === "https://api.github.com/graphql") {
+      const body = JSON.parse(String(init?.body)) as { query?: string };
+      assert.match(body.query ?? "", /closedByPullRequestsReferences/);
+      assert.ok(!(body.query ?? "").includes("timelineItems"));
+      return jsonResponse({
+        data: {
+          nodes: [
+            {
+              number: 1,
+              closedByPullRequestsReferences: {
+                nodes: [
+                  {
+                    number: 42,
+                    title: "Fix starter task",
+                    url: "https://github.com/example/project/pull/42",
+                    state: "OPEN",
+                  },
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    throw new Error(`Unexpected authenticated request: ${url}`);
+  };
+
+  try {
+    const results = await fetchStarterIssues(
+      { owner: "example", name: "project" },
+      { token: "test-token" },
+    );
+
+    assert.equal(results.length, 1);
+    assert.deepEqual(results[0]?.open_pull_requests?.map((pullRequest) => pullRequest.number), [42]);
+    assert.equal(requests.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("authenticated audits fail rather than return incomplete closing-link data", async () => {
+  const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input) => {
     const url = typeof input === "string"
@@ -222,45 +177,68 @@ test("successful GraphQL batches are preserved when a later batch fails", async 
         : input.url;
 
     if (url.startsWith("https://api.github.com/repos/example/project/issues?")) {
-      return jsonResponse(starterIssues);
+      return jsonResponse([issue()]);
     }
 
     if (url === "https://api.github.com/graphql") {
-      graphqlCalls += 1;
-      if (graphqlCalls === 1) {
-        return jsonResponse({
-          data: {
-            nodes: starterIssues.slice(0, 25).map((issue) => ({
-              number: issue.number,
-              timelineItems: {
+      return jsonResponse({
+        data: {
+          nodes: [
+            {
+              number: 1,
+              closedByPullRequestsReferences: {
                 nodes: [],
-                pageInfo: { hasNextPage: false },
+                pageInfo: { hasNextPage: true },
               },
-            })),
-          },
-        });
-      }
-      return new Response("batch failed", { status: 500 });
+            },
+          ],
+        },
+      });
     }
 
-    const timelineMatch = url.match(/\/issues\/(\d+)\/timeline/);
-    if (timelineMatch) {
-      restTimelineIssues.push(Number(timelineMatch[1]));
-      return jsonResponse([]);
-    }
-
-    throw new Error(`Unexpected request in test: ${url}`);
+    throw new Error(`Unexpected request: ${url}`);
   };
 
   try {
-    const results = await fetchStarterIssues(
-      { owner: "example", name: "project" },
-      { token: "test-token" },
+    await assert.rejects(
+      () => fetchStarterIssues(
+        { owner: "example", name: "project" },
+        { token: "test-token" },
+      ),
+      /more than 100 closing pull requests/,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
-    assert.equal(results.length, 26);
-    assert.equal(graphqlCalls, 2);
-    assert.deepEqual(restTimelineIssues, [26]);
+test("authenticated audits require node IDs instead of silently skipping SQ004", async () => {
+  const originalFetch = globalThis.fetch;
+  const missingNodeId = issue();
+  delete missingNodeId.node_id;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (url.startsWith("https://api.github.com/repos/example/project/issues?")) {
+      return jsonResponse([missingNodeId]);
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => fetchStarterIssues(
+        { owner: "example", name: "project" },
+        { token: "test-token" },
+      ),
+      /did not include a node_id/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

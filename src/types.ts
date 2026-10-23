@@ -33,7 +33,6 @@ export interface StarterIssue {
   milestone?: GitHubMilestone | null;
   issue_dependencies_summary?: IssueDependenciesSummary;
   open_pull_requests?: LinkedPullRequest[];
-  merged_pull_requests?: LinkedPullRequest[];
   pull_request?: unknown;
 }
 

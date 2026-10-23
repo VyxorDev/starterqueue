@@ -2,25 +2,17 @@ import { DEFAULT_STARTER_LABEL } from "./config.js";
 import type { LinkedPullRequest, StarterIssue } from "./types.js";
 
 const GRAPHQL_BATCH_SIZE = 25;
-const GRAPHQL_CROSS_REFERENCE_QUERY = `
-  query StarterQueueCrossReferences($ids: [ID!]!) {
+const GRAPHQL_CLOSING_PULL_REQUEST_QUERY = `
+  query StarterQueueClosingPullRequests($ids: [ID!]!) {
     nodes(ids: $ids) {
       ... on Issue {
         number
-        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+        closedByPullRequestsReferences(first: 100) {
           nodes {
-            ... on CrossReferencedEvent {
-              source {
-                __typename
-                ... on PullRequest {
-                  number
-                  title
-                  url
-                  state
-                  mergedAt
-                }
-              }
-            }
+            number
+            title
+            url
+            state
           }
           pageInfo {
             hasNextPage
@@ -41,43 +33,19 @@ export interface FetchStarterIssuesOptions {
   token?: string;
 }
 
-export interface TimelineEvent {
-  event?: string;
-  source?: {
-    issue?: {
+export interface GraphqlClosingPullRequestIssue {
+  number: number;
+  closedByPullRequestsReferences?: {
+    nodes?: Array<{
       number?: number;
       title?: string;
-      html_url?: string;
+      url?: string;
       state?: string;
-      pull_request?: {
-        merged_at?: string | null;
-      };
-    };
-  };
-}
-
-export interface GraphqlCrossReferenceIssue {
-  number: number;
-  timelineItems?: {
-    nodes?: Array<{
-      source?: {
-        __typename?: string;
-        number?: number;
-        title?: string;
-        url?: string;
-        state?: string;
-        mergedAt?: string | null;
-      } | null;
     } | null> | null;
     pageInfo?: {
       hasNextPage?: boolean;
     } | null;
   } | null;
-}
-
-interface PullRequestReferences {
-  openPullRequests: LinkedPullRequest[];
-  mergedPullRequests: LinkedPullRequest[];
 }
 
 interface GraphqlResponse<T> {
@@ -86,7 +54,7 @@ interface GraphqlResponse<T> {
 }
 
 interface GraphqlNodesData {
-  nodes?: Array<GraphqlCrossReferenceIssue | null> | null;
+  nodes?: Array<GraphqlClosingPullRequestIssue | null> | null;
 }
 
 export function parseRepo(input: string): RepoRef {
@@ -161,156 +129,66 @@ async function fetchGraphql<T>(
   return payload.data;
 }
 
-function linkedPullRequestFromEvent(event: TimelineEvent): LinkedPullRequest | null {
-  if (event.event !== "cross-referenced") return null;
-
-  const source = event.source?.issue;
-  if (!source?.pull_request) return null;
-  if (typeof source.number !== "number" || !source.title || !source.html_url) return null;
-
-  return {
-    number: source.number,
-    title: source.title,
-    html_url: source.html_url,
-  };
-}
-
-export function extractOpenPullRequests(events: TimelineEvent[]): LinkedPullRequest[] {
+export function extractGraphqlClosingPullRequests(
+  issue: GraphqlClosingPullRequestIssue,
+): { openPullRequests: LinkedPullRequest[]; hasNextPage: boolean } {
   const pullRequests = new Map<string, LinkedPullRequest>();
 
-  for (const event of events) {
-    if (event.source?.issue?.state !== "open") continue;
-    const pullRequest = linkedPullRequestFromEvent(event);
-    if (!pullRequest) continue;
-    pullRequests.set(pullRequest.html_url, pullRequest);
-  }
+  for (const node of issue.closedByPullRequestsReferences?.nodes ?? []) {
+    if (!node || node.state !== "OPEN") continue;
+    if (typeof node.number !== "number" || !node.title || !node.url) continue;
 
-  return [...pullRequests.values()];
-}
-
-export function extractMergedPullRequests(events: TimelineEvent[]): LinkedPullRequest[] {
-  const pullRequests = new Map<string, LinkedPullRequest>();
-
-  for (const event of events) {
-    if (!event.source?.issue?.pull_request?.merged_at) continue;
-    const pullRequest = linkedPullRequestFromEvent(event);
-    if (!pullRequest) continue;
-    pullRequests.set(pullRequest.html_url, pullRequest);
-  }
-
-  return [...pullRequests.values()];
-}
-
-export function extractGraphqlPullRequestReferences(
-  issue: GraphqlCrossReferenceIssue,
-): PullRequestReferences & { hasNextPage: boolean; requiresRestFallback: boolean } {
-  const openPullRequests = new Map<string, LinkedPullRequest>();
-  const mergedPullRequests = new Map<string, LinkedPullRequest>();
-  let requiresRestFallback = false;
-
-  for (const node of issue.timelineItems?.nodes ?? []) {
-    const source = node?.source;
-
-    // Cross-reference sources can be hidden from an installation-scoped token.
-    // In that case REST preserves the pre-GraphQL behavior and avoids false negatives.
-    if (!source) {
-      requiresRestFallback = true;
-      continue;
-    }
-
-    if (!source.__typename) {
-      requiresRestFallback = true;
-      continue;
-    }
-
-    if (source.__typename !== "PullRequest") continue;
-
-    if (
-      typeof source.number !== "number"
-      || !source.title
-      || !source.url
-    ) {
-      requiresRestFallback = true;
-      continue;
-    }
-
-    const pullRequest: LinkedPullRequest = {
-      number: source.number,
-      title: source.title,
-      html_url: source.url,
-    };
-
-    if (source.state === "OPEN") {
-      openPullRequests.set(pullRequest.html_url, pullRequest);
-    }
-    if (source.mergedAt) {
-      mergedPullRequests.set(pullRequest.html_url, pullRequest);
-    }
+    pullRequests.set(node.url, {
+      number: node.number,
+      title: node.title,
+      html_url: node.url,
+    });
   }
 
   return {
-    openPullRequests: [...openPullRequests.values()],
-    mergedPullRequests: [...mergedPullRequests.values()],
-    hasNextPage: issue.timelineItems?.pageInfo?.hasNextPage === true,
-    requiresRestFallback,
+    openPullRequests: [...pullRequests.values()],
+    hasNextPage: issue.closedByPullRequestsReferences?.pageInfo?.hasNextPage === true,
   };
 }
 
-async function fetchPullRequestReferencesRest(
-  repo: RepoRef,
-  issueNumber: number,
-  token?: string,
-): Promise<PullRequestReferences> {
-  const events: TimelineEvent[] = [];
-
-  for (let page = 1; page <= 10; page += 1) {
-    const params = new URLSearchParams({ per_page: "100", page: String(page) });
-    const pageEvents = await fetchJson<TimelineEvent[]>(
-      `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues/${issueNumber}/timeline?${params}`,
-      token,
-    );
-
-    events.push(...pageEvents);
-    if (pageEvents.length < 100) break;
-  }
-
-  return {
-    openPullRequests: extractOpenPullRequests(events),
-    mergedPullRequests: extractMergedPullRequests(events),
-  };
-}
-
-async function fetchPullRequestReferencesGraphql(
+async function fetchClosingPullRequestsGraphql(
   issues: StarterIssue[],
   token: string,
-): Promise<Map<number, PullRequestReferences>> {
-  const references = new Map<number, PullRequestReferences>();
+): Promise<Map<number, LinkedPullRequest[]>> {
   const withNodeIds = issues.filter(
     (issue): issue is StarterIssue & { node_id: string } => typeof issue.node_id === "string" && issue.node_id.length > 0,
   );
 
+  if (withNodeIds.length !== issues.length) {
+    const missing = issues.find((issue) => !issue.node_id);
+    throw new Error(`GitHub issue #${missing?.number ?? "unknown"} did not include a node_id required for linked pull request detection.`);
+  }
+
+  const references = new Map<number, LinkedPullRequest[]>();
+
   for (let offset = 0; offset < withNodeIds.length; offset += GRAPHQL_BATCH_SIZE) {
     const batch = withNodeIds.slice(offset, offset + GRAPHQL_BATCH_SIZE);
+    const data = await fetchGraphql<GraphqlNodesData>(
+      GRAPHQL_CLOSING_PULL_REQUEST_QUERY,
+      { ids: batch.map((issue) => issue.node_id) },
+      token,
+    );
 
-    try {
-      const data = await fetchGraphql<GraphqlNodesData>(
-        GRAPHQL_CROSS_REFERENCE_QUERY,
-        { ids: batch.map((issue) => issue.node_id) },
-        token,
-      );
-
-      for (const node of data.nodes ?? []) {
-        if (!node) continue;
-        const extracted = extractGraphqlPullRequestReferences(node);
-        if (extracted.hasNextPage || extracted.requiresRestFallback) continue;
-        references.set(node.number, {
-          openPullRequests: extracted.openPullRequests,
-          mergedPullRequests: extracted.mergedPullRequests,
-        });
+    const returnedIssues = new Set<number>();
+    for (const node of data.nodes ?? []) {
+      if (!node) continue;
+      returnedIssues.add(node.number);
+      const extracted = extractGraphqlClosingPullRequests(node);
+      if (extracted.hasNextPage) {
+        throw new Error(`GitHub returned more than 100 closing pull requests for issue #${node.number}; refusing an incomplete audit.`);
       }
-    } catch {
-      // Keep successful earlier batches. Issues from this batch simply fall back to REST.
-      continue;
+      references.set(node.number, extracted.openPullRequests);
+    }
+
+    for (const issue of batch) {
+      if (!returnedIssues.has(issue.number)) {
+        throw new Error(`GitHub GraphQL did not return closing pull request data for issue #${issue.number}.`);
+      }
     }
   }
 
@@ -342,20 +220,12 @@ export async function fetchStarterIssues(
     if (pageItems.length < 100) break;
   }
 
-  const graphqlReferences = token && issues.length > 0
-    ? await fetchPullRequestReferencesGraphql(issues, token)
-    : new Map<number, PullRequestReferences>();
+  const closingPullRequests = token && issues.length > 0
+    ? await fetchClosingPullRequestsGraphql(issues, token)
+    : new Map<number, LinkedPullRequest[]>();
 
-  const enriched: StarterIssue[] = [];
-  for (const issue of issues) {
-    const references = graphqlReferences.get(issue.number)
-      ?? await fetchPullRequestReferencesRest(repo, issue.number, token);
-    enriched.push({
-      ...issue,
-      open_pull_requests: references.openPullRequests,
-      merged_pull_requests: references.mergedPullRequests,
-    });
-  }
-
-  return enriched;
+  return issues.map((issue) => ({
+    ...issue,
+    open_pull_requests: closingPullRequests.get(issue.number) ?? [],
+  }));
 }

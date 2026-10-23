@@ -17,7 +17,6 @@ function issue(overrides: Partial<StarterIssue> = {}): StarterIssue {
     locked: false,
     milestone: null,
     open_pull_requests: [],
-    merged_pull_requests: [],
     ...overrides,
   };
 }
@@ -54,7 +53,7 @@ test("custom stale threshold controls SQ003", () => {
   assert.ok(result.findings.some((finding) => finding.code === "SQ003"));
 });
 
-test("starter issue referenced by an open pull request fails with SQ004", () => {
+test("starter issue with an open closing pull request fails with SQ004", () => {
   const pullRequestUrl = "https://github.com/example/project/pull/42";
   const result = auditIssue(issue({
     open_pull_requests: [
@@ -69,7 +68,14 @@ test("starter issue referenced by an open pull request fails with SQ004", () => 
   assert.equal(result.status, "fail");
   const finding = result.findings.find((candidate) => candidate.code === "SQ004");
   assert.ok(finding);
+  assert.match(finding.message, /linked to close this issue/);
   assert.match(finding.message, new RegExp(pullRequestUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("open issue with no closing pull request stays available", () => {
+  const result = auditIssue(issue({ open_pull_requests: [] }), NOW);
+  assert.equal(result.status, "pass");
+  assert.ok(!result.findings.some((finding) => finding.code === "SQ004"));
 });
 
 test("issue explicitly marked not ready for contributions fails with SQ005", () => {
@@ -175,22 +181,4 @@ test("future milestone does not trigger SQ009", () => {
 
   assert.equal(result.status, "pass");
   assert.ok(!result.findings.some((finding) => finding.code === "SQ009"));
-});
-
-test("starter issue referenced by a merged pull request fails with SQ010", () => {
-  const pullRequestUrl = "https://github.com/example/project/pull/77";
-  const result = auditIssue(issue({
-    merged_pull_requests: [
-      {
-        number: 77,
-        title: "Implement starter task",
-        html_url: pullRequestUrl,
-      },
-    ],
-  }), NOW);
-
-  assert.equal(result.status, "fail");
-  const finding = result.findings.find((candidate) => candidate.code === "SQ010");
-  assert.ok(finding);
-  assert.match(finding.message, new RegExp(pullRequestUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });

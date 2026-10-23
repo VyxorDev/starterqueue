@@ -68,8 +68,8 @@ export function auditIssue(
       code: "SQ004",
       level: "fail",
       message: openPullRequests.length === 1
-        ? `Open pull request ${refs} references this issue`
-        : `Open pull requests ${refs} reference this issue`,
+        ? `Open pull request ${refs} is linked to close this issue`
+        : `Open pull requests ${refs} are linked to close this issue`,
     });
   }
 
@@ -116,18 +116,6 @@ export function auditIssue(
         message: `Milestone "${milestone.title}" is past due (due ${dueOn.toISOString().slice(0, 10)})`,
       });
     }
-  }
-
-  const mergedPullRequests = issue.merged_pull_requests ?? [];
-  if (mergedPullRequests.length > 0) {
-    const refs = mergedPullRequests.map((pullRequest) => pullRequest.html_url).join(", ");
-    findings.push({
-      code: "SQ010",
-      level: "fail",
-      message: mergedPullRequests.length === 1
-        ? `Merged pull request ${refs} still references this open issue`
-        : `Merged pull requests ${refs} still reference this open issue`,
-    });
   }
 
   const status = findings.some((finding) => finding.level === "fail")
