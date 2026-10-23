@@ -7,7 +7,7 @@
     "starterqueue": "dist/src/cli.js"
   },
   "files": [
-    "dist/"
+    "dist/src/"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
