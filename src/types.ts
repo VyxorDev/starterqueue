@@ -13,6 +13,13 @@ export interface IssueDependenciesSummary {
   total_blocking?: number;
 }
 
+export interface GitHubMilestone {
+  title: string;
+  state?: string;
+  due_on?: string | null;
+  html_url?: string;
+}
+
 export interface StarterIssue {
   number: number;
   title: string;
@@ -21,8 +28,11 @@ export interface StarterIssue {
   assignees: unknown[];
   updated_at: string;
   labels: GitHubLabel[];
+  locked?: boolean;
+  milestone?: GitHubMilestone | null;
   issue_dependencies_summary?: IssueDependenciesSummary;
   open_pull_requests?: LinkedPullRequest[];
+  merged_pull_requests?: LinkedPullRequest[];
   pull_request?: unknown;
 }
 
