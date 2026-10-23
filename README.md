@@ -10,7 +10,7 @@ StarterQueue is a small CLI for maintainers who use GitHub's `good first issue` 
 | --- | --- | --- |
 | `SQ001` | Issue already has an assignee | Fail |
 | `SQ002` | Issue has a blocked/waiting label | Fail |
-| `SQ003` | No activity for 90+ days | Warning |
+| `SQ003` | No activity for the configured threshold (90 days by default) | Warning |
 | `SQ004` | An open pull request references the issue | Fail |
 
 The goal is not to guess whether an issue is easy. The goal is to catch objective queue rot first.
@@ -38,6 +38,18 @@ For JSON output:
 ```bash
 node dist/src/cli.js audit owner/repo --json
 ```
+
+### Customize the audit
+
+StarterQueue defaults to the `good first issue` label and a 90-day inactivity warning. Repositories with different conventions can override either value:
+
+```bash
+node dist/src/cli.js audit owner/repo --label "starter task"
+node dist/src/cli.js audit owner/repo --stale-days 45
+node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45
+```
+
+`--stale-days` must be a positive integer. The selected label and stale threshold are also included in `--json` output.
 
 Set `GH_TOKEN` for a higher GitHub API rate limit. It is strongly recommended for repositories with several starter issues because StarterQueue also reads each issue's timeline to find open PR references.
 
