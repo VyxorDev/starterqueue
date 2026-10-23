@@ -1,0 +1,138 @@
+name: Release v0.2.0
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type v0.2.0 to publish the release.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'VyxorDev/starterqueue'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Confirm release intent
+        shell: bash
+        env:
+          RELEASE_CONFIRM: ${{ inputs.confirm }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/main"
+          test "$RELEASE_CONFIRM" = "v0.2.0"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          test "$PACKAGE_VERSION" = "0.2.0"
+          test -f action.yml
+
+      - run: npm ci
+      - run: npm test
+      - run: npm pack --dry-run
+      - run: npm run test:package
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          npm pack
+          sha256sum "starterqueue-${PACKAGE_VERSION}.tgz" > SHA256SUMS.txt
+
+          awk '
+            /^## \[0\.2\.0\]/ { found=1 }
+            found && /^## \[/ && $0 !~ /^## \[0\.2\.0\]/ { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          test -s RELEASE_NOTES.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG="v0.2.0"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          TARBALL="starterqueue-0.2.0.tgz"
+          CHECKSUMS="SHA256SUMS.txt"
+
+          resolve_remote_tag_commit() {
+            local tag="$1"
+
+            if ! git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
+              return 1
+            fi
+
+            git fetch --no-tags origin "+refs/tags/$tag:refs/tags/$tag"
+            git rev-list -n 1 "$tag"
+          }
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+            IS_PRERELEASE="$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')"
+            TAG_COMMIT="$(resolve_remote_tag_commit "$RELEASE_TAG")" || {
+              echo "GitHub release $RELEASE_TAG exists but its remote tag is missing or invalid."
+              exit 1
+            }
+
+            if [[ "$IS_DRAFT" != "false" || "$IS_PRERELEASE" != "false" || "$TAG_COMMIT" != "$RELEASE_SHA" ]]; then
+              echo "GitHub release $RELEASE_TAG exists but does not match the expected published state or commit."
+              exit 1
+            fi
+
+            rm -rf existing-release
+            mkdir -p existing-release
+            gh release download "$RELEASE_TAG" \
+              --pattern "$TARBALL" \
+              --pattern "$CHECKSUMS" \
+              --dir existing-release
+
+            if cmp -s "$TARBALL" "existing-release/$TARBALL" \
+              && cmp -s "$CHECKSUMS" "existing-release/$CHECKSUMS"; then
+              echo "Published GitHub release $RELEASE_TAG already exists at the expected commit with byte-identical assets."
+              exit 0
+            fi
+
+            echo "GitHub release $RELEASE_TAG exists but its published assets differ from the validated artifacts."
+            exit 1
+          fi
+
+          if TAG_COMMIT="$(resolve_remote_tag_commit "$RELEASE_TAG")"; then
+            if [[ "$TAG_COMMIT" != "$RELEASE_SHA" ]]; then
+              echo "Remote tag $RELEASE_TAG already exists at $TAG_COMMIT instead of $RELEASE_SHA."
+              exit 1
+            fi
+
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "StarterQueue v0.2.0" \
+              --notes-file RELEASE_NOTES.md \
+              "$TARBALL#npm package tarball" \
+              "$CHECKSUMS#SHA-256 checksums"
+            exit 0
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --title "StarterQueue v0.2.0" \
+            --notes-file RELEASE_NOTES.md \
+            "$TARBALL#npm package tarball" \
+            "$CHECKSUMS#SHA-256 checksums"
