@@ -24,7 +24,7 @@ StarterQueue checks for **objective queue rot** such as:
 - an issue already being assigned;
 - a blocker or waiting label;
 - long inactivity;
-- an open or merged pull request already referencing the issue;
+- an open pull request that GitHub marks as closing the issue;
 - explicit text saying the issue is not ready for contributors;
 - GitHub reporting that the issue is blocked by open dependencies;
 - a locked issue conversation;
@@ -41,18 +41,17 @@ The goal is deliberately narrow: **catch obvious readiness problems without pret
 | `SQ001` | Issue already has an assignee | ❌ Fail |
 | `SQ002` | Issue has a blocked/waiting label | ❌ Fail |
 | `SQ003` | No activity for the configured threshold — 90 days by default | ⚠️ Warning |
-| `SQ004` | An open pull request references the issue | ❌ Fail |
+| `SQ004` | An open pull request is registered by GitHub as closing the issue | ❌ Fail |
 | `SQ005` | Issue text explicitly says it is not ready for contribution(s) | ❌ Fail |
 | `SQ006` | GitHub reports one or more open issue dependencies blocking it | ❌ Fail |
 | `SQ007` | Issue conversation is locked | ❌ Fail |
 | `SQ008` | Issue belongs to a closed milestone | ❌ Fail |
 | `SQ009` | An open milestone is past its due date | ⚠️ Warning |
-| `SQ010` | A merged pull request still references the open issue | ❌ Fail |
 
 ### Rule notes
 
-**`SQ004` — open pull request references**  
-Uses GitHub cross-reference events. It catches open pull requests that reference the issue, including normal PR-to-issue references. Manually connected relationships that do not produce a cross-reference event are not guaranteed to be detected yet.
+**`SQ004` — open closing pull request**  
+Uses GitHub GraphQL's structured `closedByPullRequestsReferences` relation. A normal mention such as `Part of #123`, `Follows #123`, or a PR that explicitly leaves work for the issue does **not** count. This avoids treating incidental cross-references as proof that the issue is already being solved. `SQ004` requires `GH_TOKEN`; tokenless runs skip this rule and print a notice to stderr.
 
 **`SQ005` — explicit not-ready language**  
 Intentionally narrow. It only catches explicit wording such as `not ready for contribution` or `not ready for contributions`. StarterQueue does not perform subjective language scoring or infer readiness from arbitrary prose.
@@ -66,9 +65,6 @@ Uses the issue's existing `locked` field. A locked starter issue is treated as u
 **`SQ008` and `SQ009` — milestone state**  
 Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; explicitly open milestones whose due date has passed warn with `SQ009`. Closed milestones do not also receive the overdue warning.
 
-**`SQ010` — merged pull request references**  
-Uses the same cross-reference data as `SQ004`. Only pull requests with GitHub merge metadata are counted; closed-but-unmerged pull requests are ignored.
-
 ---
 
 ## Quick start
@@ -77,7 +73,7 @@ Uses the same cross-reference data as `SQ004`. Only pull requests with GitHub me
 
 - Node.js **20 or newer**
 - npm
-- Optional: `GH_TOKEN` for authenticated GitHub requests and batched cross-reference lookups
+- Optional but recommended: `GH_TOKEN` for authenticated GitHub requests and `SQ004`
 
 ### Run locally
 
@@ -100,7 +96,7 @@ node dist/src/cli.js audit owner/repo --json
 ```
 
 > [!TIP]
-> Set `GH_TOKEN` when auditing repositories with several starter issues. Authenticated runs batch pull-request cross-reference lookups through GitHub GraphQL when possible. If GraphQL is unavailable, incomplete, or cannot fully reveal a cross-reference source under the token's repository scope, StarterQueue safely falls back to the REST timeline endpoint for that issue. Tokenless runs continue to use REST.
+> Set `GH_TOKEN` for the complete audit. Authenticated runs batch GitHub's structured closing-PR relationship through GraphQL. If GitHub returns incomplete closing-PR data, StarterQueue exits with a tool error instead of silently producing a false-clean audit. Without a token, all other rules still run, but `SQ004` is skipped.
 
 ---
 
@@ -175,7 +171,7 @@ jobs:
         with:
           repository: VyxorDev/starterqueue
           # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
-          ref: 19521d69659c7601d942b5d6b9d010a11a5ad730
+          ref: 8db696f2ddeeaeac08f745ec693ef2feeed65160
           path: .starterqueue
 
       - uses: actions/setup-node@v4
@@ -235,17 +231,15 @@ PASS  #412  Fix authentication typo
 FAIL  #397  Update installation guide
       SQ001: Issue is already assigned
 FAIL  #355  Improve cache handling
-      SQ004: Open pull request https://github.com/example/project/pull/421 references this issue
+      SQ004: Open pull request https://github.com/example/project/pull/421 is registered by GitHub as closing this issue
 FAIL  #330  Add usage statistics administration UI
       SQ006: Issue is blocked by 1 open GitHub issue dependency
-FAIL  #290  Clean up legacy starter task
-      SQ010: Merged pull request https://github.com/example/project/pull/444 still references this open issue
 WARN  #275  Refresh CSS documentation
       SQ009: Milestone "v0.4" is past due (due 2026-10-01)
 WARN  #301  Add example for foo()
       SQ003: No activity for 94 days
 
-Queue health: 1/7 clean · 2 warning · 4 failing
+Queue health: 1/6 clean · 2 warning · 3 failing
 ```
 
 ---
@@ -254,13 +248,14 @@ Queue health: 1/7 clean · 2 warning · 4 failing
 
 StarterQueue keeps correctness ahead of cleverness:
 
-- The issue queue itself is fetched through GitHub REST.
-- With `GH_TOKEN`, cross-reference lookups are batched through GraphQL in small groups.
-- A failed GraphQL batch only falls back for issues from that batch; results from earlier successful batches are retained.
-- If an issue has no usable node ID, its cross-reference timeline exceeds the batched page, or GraphQL cannot fully resolve a cross-reference source under the current token, StarterQueue falls back to the REST timeline endpoint for that issue.
-- Without a token, StarterQueue stays on the REST path.
+- The open starter-issue queue is fetched through GitHub REST.
+- With `GH_TOKEN`, `SQ004` uses GitHub GraphQL `closedByPullRequestsReferences` in batches of 25 issues.
+- Only **open** pull requests from that structured closing relationship count for `SQ004`.
+- Generic issue/PR mentions and merged PR references are intentionally ignored; an open issue remains authoritative even if an old merged PR mentions it.
+- If authenticated GraphQL data is missing or paginated beyond the supported bound, StarterQueue exits with code `1` rather than guessing.
+- Without `GH_TOKEN`, StarterQueue skips `SQ004` and continues with the remaining rules.
 
-This reduces request count for normal authenticated CI runs without removing the simpler public REST fallback or sacrificing cross-reference correctness.
+This is intentionally conservative: a missed optional signal is preferable to a false accusation that a starter issue is already taken.
 
 ---
 
@@ -285,7 +280,6 @@ Future work may cover:
 
 - simpler distribution through a package or dedicated GitHub Action;
 - repository-specific queue policies;
-- more complete detection of manually linked work;
 - additional objective forms of starter-queue rot when real-world false passes justify them.
 
 New rules should stay narrow, testable, and evidence-based.
