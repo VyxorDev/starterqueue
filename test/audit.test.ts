@@ -152,6 +152,18 @@ test("starter issue on an overdue open milestone warns with SQ009", () => {
   assert.match(finding.message, /2026-10-01/);
 });
 
+test("past-due milestone without explicit open state does not trigger SQ009", () => {
+  const result = auditIssue(issue({
+    milestone: {
+      title: "legacy milestone",
+      due_on: "2026-10-01T00:00:00Z",
+    },
+  }), NOW);
+
+  assert.equal(result.status, "pass");
+  assert.ok(!result.findings.some((finding) => finding.code === "SQ009"));
+});
+
 test("future milestone does not trigger SQ009", () => {
   const result = auditIssue(issue({
     milestone: {
