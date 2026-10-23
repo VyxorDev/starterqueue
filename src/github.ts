@@ -1,6 +1,35 @@
 import { DEFAULT_STARTER_LABEL } from "./config.js";
 import type { LinkedPullRequest, StarterIssue } from "./types.js";
 
+const GRAPHQL_BATCH_SIZE = 25;
+const GRAPHQL_CROSS_REFERENCE_QUERY = `
+  query StarterQueueCrossReferences($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Issue {
+        number
+        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+          nodes {
+            ... on CrossReferencedEvent {
+              source {
+                ... on PullRequest {
+                  number
+                  title
+                  url
+                  state
+                  mergedAt
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+          }
+        }
+      }
+    }
+  }
+`;
+
 export interface RepoRef {
   owner: string;
   name: string;
@@ -24,6 +53,38 @@ export interface TimelineEvent {
       };
     };
   };
+}
+
+export interface GraphqlCrossReferenceIssue {
+  number: number;
+  timelineItems?: {
+    nodes?: Array<{
+      source?: {
+        number?: number;
+        title?: string;
+        url?: string;
+        state?: string;
+        mergedAt?: string | null;
+      } | null;
+    } | null> | null;
+    pageInfo?: {
+      hasNextPage?: boolean;
+    } | null;
+  } | null;
+}
+
+interface PullRequestReferences {
+  openPullRequests: LinkedPullRequest[];
+  mergedPullRequests: LinkedPullRequest[];
+}
+
+interface GraphqlResponse<T> {
+  data?: T;
+  errors?: Array<{ message?: string }>;
+}
+
+interface GraphqlNodesData {
+  nodes?: Array<GraphqlCrossReferenceIssue | null> | null;
 }
 
 export function parseRepo(input: string): RepoRef {
@@ -67,6 +128,37 @@ async function fetchJson<T>(url: string, token?: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function fetchGraphql<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  token: string,
+): Promise<T> {
+  const response = await fetch("https://api.github.com/graphql", {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub GraphQL API returned ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as GraphqlResponse<T>;
+  if (payload.errors?.length) {
+    const message = payload.errors[0]?.message ?? "Unknown GraphQL error";
+    throw new Error(`GitHub GraphQL API error: ${message}`);
+  }
+  if (!payload.data) {
+    throw new Error("GitHub GraphQL API returned no data.");
+  }
+
+  return payload.data;
+}
+
 function linkedPullRequestFromEvent(event: TimelineEvent): LinkedPullRequest | null {
   if (event.event !== "cross-referenced") return null;
 
@@ -107,14 +199,47 @@ export function extractMergedPullRequests(events: TimelineEvent[]): LinkedPullRe
   return [...pullRequests.values()];
 }
 
-async function fetchPullRequestReferences(
+export function extractGraphqlPullRequestReferences(issue: GraphqlCrossReferenceIssue):
+PullRequestReferences & { hasNextPage: boolean } {
+  const openPullRequests = new Map<string, LinkedPullRequest>();
+  const mergedPullRequests = new Map<string, LinkedPullRequest>();
+
+  for (const node of issue.timelineItems?.nodes ?? []) {
+    const source = node?.source;
+    if (
+      typeof source?.number !== "number"
+      || !source.title
+      || !source.url
+    ) {
+      continue;
+    }
+
+    const pullRequest: LinkedPullRequest = {
+      number: source.number,
+      title: source.title,
+      html_url: source.url,
+    };
+
+    if (source.state === "OPEN") {
+      openPullRequests.set(pullRequest.html_url, pullRequest);
+    }
+    if (source.mergedAt) {
+      mergedPullRequests.set(pullRequest.html_url, pullRequest);
+    }
+  }
+
+  return {
+    openPullRequests: [...openPullRequests.values()],
+    mergedPullRequests: [...mergedPullRequests.values()],
+    hasNextPage: issue.timelineItems?.pageInfo?.hasNextPage === true,
+  };
+}
+
+async function fetchPullRequestReferencesRest(
   repo: RepoRef,
   issueNumber: number,
   token?: string,
-): Promise<{
-  openPullRequests: LinkedPullRequest[];
-  mergedPullRequests: LinkedPullRequest[];
-}> {
+): Promise<PullRequestReferences> {
   const events: TimelineEvent[] = [];
 
   for (let page = 1; page <= 10; page += 1) {
@@ -132,6 +257,37 @@ async function fetchPullRequestReferences(
     openPullRequests: extractOpenPullRequests(events),
     mergedPullRequests: extractMergedPullRequests(events),
   };
+}
+
+async function fetchPullRequestReferencesGraphql(
+  issues: StarterIssue[],
+  token: string,
+): Promise<Map<number, PullRequestReferences>> {
+  const references = new Map<number, PullRequestReferences>();
+  const withNodeIds = issues.filter(
+    (issue): issue is StarterIssue & { node_id: string } => typeof issue.node_id === "string" && issue.node_id.length > 0,
+  );
+
+  for (let offset = 0; offset < withNodeIds.length; offset += GRAPHQL_BATCH_SIZE) {
+    const batch = withNodeIds.slice(offset, offset + GRAPHQL_BATCH_SIZE);
+    const data = await fetchGraphql<GraphqlNodesData>(
+      GRAPHQL_CROSS_REFERENCE_QUERY,
+      { ids: batch.map((issue) => issue.node_id) },
+      token,
+    );
+
+    for (const node of data.nodes ?? []) {
+      if (!node) continue;
+      const extracted = extractGraphqlPullRequestReferences(node);
+      if (extracted.hasNextPage) continue;
+      references.set(node.number, {
+        openPullRequests: extracted.openPullRequests,
+        mergedPullRequests: extracted.mergedPullRequests,
+      });
+    }
+  }
+
+  return references;
 }
 
 export async function fetchStarterIssues(
@@ -159,9 +315,19 @@ export async function fetchStarterIssues(
     if (pageItems.length < 100) break;
   }
 
+  let graphqlReferences = new Map<number, PullRequestReferences>();
+  if (token && issues.length > 0) {
+    try {
+      graphqlReferences = await fetchPullRequestReferencesGraphql(issues, token);
+    } catch {
+      graphqlReferences = new Map<number, PullRequestReferences>();
+    }
+  }
+
   const enriched: StarterIssue[] = [];
   for (const issue of issues) {
-    const references = await fetchPullRequestReferences(repo, issue.number, token);
+    const references = graphqlReferences.get(issue.number)
+      ?? await fetchPullRequestReferencesRest(repo, issue.number, token);
     enriched.push({
       ...issue,
       open_pull_requests: references.openPullRequests,
