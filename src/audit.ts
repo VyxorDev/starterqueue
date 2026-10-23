@@ -1,6 +1,6 @@
+import { DEFAULT_STALE_DAYS } from "./config.js";
 import type { AuditedIssue, Finding, GitHubLabel, StarterIssue } from "./types.js";
 
-const STALE_DAYS = 90;
 const BLOCKED_LABELS = new Set([
   "blocked",
   "status: blocked",
@@ -9,13 +9,22 @@ const BLOCKED_LABELS = new Set([
   "on-hold",
 ]);
 
+export interface AuditOptions {
+  staleDays?: number;
+}
+
 function normalizeLabel(label: GitHubLabel): string {
   if (typeof label === "string") return label.trim().toLowerCase();
   return (label.name ?? "").trim().toLowerCase();
 }
 
-export function auditIssue(issue: StarterIssue, now = new Date()): AuditedIssue {
+export function auditIssue(
+  issue: StarterIssue,
+  now = new Date(),
+  options: AuditOptions = {},
+): AuditedIssue {
   const findings: Finding[] = [];
+  const staleDays = options.staleDays ?? DEFAULT_STALE_DAYS;
 
   if (issue.assignees.length > 0) {
     findings.push({
@@ -38,7 +47,7 @@ export function auditIssue(issue: StarterIssue, now = new Date()): AuditedIssue 
   const ageMs = now.getTime() - updatedAt.getTime();
   const ageDays = Number.isFinite(ageMs) ? Math.floor(ageMs / 86_400_000) : 0;
 
-  if (ageDays >= STALE_DAYS) {
+  if (ageDays >= staleDays) {
     findings.push({
       code: "SQ003",
       level: "warn",
@@ -67,6 +76,10 @@ export function auditIssue(issue: StarterIssue, now = new Date()): AuditedIssue 
   return { issue, status, findings };
 }
 
-export function auditIssues(issues: StarterIssue[], now = new Date()): AuditedIssue[] {
-  return issues.map((issue) => auditIssue(issue, now));
+export function auditIssues(
+  issues: StarterIssue[],
+  now = new Date(),
+  options: AuditOptions = {},
+): AuditedIssue[] {
+  return issues.map((issue) => auditIssue(issue, now, options));
 }
