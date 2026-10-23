@@ -11,7 +11,7 @@ export interface FetchStarterIssuesOptions {
   token?: string;
 }
 
-interface TimelineEvent {
+export interface TimelineEvent {
   event?: string;
   source?: {
     issue?: {
@@ -19,7 +19,9 @@ interface TimelineEvent {
       title?: string;
       html_url?: string;
       state?: string;
-      pull_request?: unknown;
+      pull_request?: {
+        merged_at?: string | null;
+      };
     };
   };
 }
@@ -65,31 +67,54 @@ async function fetchJson<T>(url: string, token?: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+function linkedPullRequestFromEvent(event: TimelineEvent): LinkedPullRequest | null {
+  if (event.event !== "cross-referenced") return null;
+
+  const source = event.source?.issue;
+  if (!source?.pull_request) return null;
+  if (typeof source.number !== "number" || !source.title || !source.html_url) return null;
+
+  return {
+    number: source.number,
+    title: source.title,
+    html_url: source.html_url,
+  };
+}
+
 export function extractOpenPullRequests(events: TimelineEvent[]): LinkedPullRequest[] {
   const pullRequests = new Map<string, LinkedPullRequest>();
 
   for (const event of events) {
-    if (event.event !== "cross-referenced") continue;
-
-    const source = event.source?.issue;
-    if (!source?.pull_request || source.state !== "open") continue;
-    if (typeof source.number !== "number" || !source.title || !source.html_url) continue;
-
-    pullRequests.set(source.html_url, {
-      number: source.number,
-      title: source.title,
-      html_url: source.html_url,
-    });
+    if (event.source?.issue?.state !== "open") continue;
+    const pullRequest = linkedPullRequestFromEvent(event);
+    if (!pullRequest) continue;
+    pullRequests.set(pullRequest.html_url, pullRequest);
   }
 
   return [...pullRequests.values()];
 }
 
-async function fetchOpenPullRequests(
+export function extractMergedPullRequests(events: TimelineEvent[]): LinkedPullRequest[] {
+  const pullRequests = new Map<string, LinkedPullRequest>();
+
+  for (const event of events) {
+    if (!event.source?.issue?.pull_request?.merged_at) continue;
+    const pullRequest = linkedPullRequestFromEvent(event);
+    if (!pullRequest) continue;
+    pullRequests.set(pullRequest.html_url, pullRequest);
+  }
+
+  return [...pullRequests.values()];
+}
+
+async function fetchPullRequestReferences(
   repo: RepoRef,
   issueNumber: number,
   token?: string,
-): Promise<LinkedPullRequest[]> {
+): Promise<{
+  openPullRequests: LinkedPullRequest[];
+  mergedPullRequests: LinkedPullRequest[];
+}> {
   const events: TimelineEvent[] = [];
 
   for (let page = 1; page <= 10; page += 1) {
@@ -103,7 +128,10 @@ async function fetchOpenPullRequests(
     if (pageEvents.length < 100) break;
   }
 
-  return extractOpenPullRequests(events);
+  return {
+    openPullRequests: extractOpenPullRequests(events),
+    mergedPullRequests: extractMergedPullRequests(events),
+  };
 }
 
 export async function fetchStarterIssues(
@@ -133,8 +161,12 @@ export async function fetchStarterIssues(
 
   const enriched: StarterIssue[] = [];
   for (const issue of issues) {
-    const open_pull_requests = await fetchOpenPullRequests(repo, issue.number, token);
-    enriched.push({ ...issue, open_pull_requests });
+    const references = await fetchPullRequestReferences(repo, issue.number, token);
+    enriched.push({
+      ...issue,
+      open_pull_requests: references.openPullRequests,
+      merged_pull_requests: references.mergedPullRequests,
+    });
   }
 
   return enriched;
