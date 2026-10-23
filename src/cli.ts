@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import process from "node:process";
 import { auditIssues } from "./audit.js";
 import { fetchStarterIssues, parseRepo } from "./github.js";
 import type { AuditedIssue } from "./types.js";
