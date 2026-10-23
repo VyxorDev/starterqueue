@@ -21,7 +21,8 @@ StarterQueue's first public release.
 
 - `SQ004` now uses GitHub's structured closing-pull-request relationship instead of generic issue/PR cross-references.
 - Authenticated `SQ004` checks use GraphQL batching; tokenless runs skip `SQ004` rather than guessing from ambiguous references.
-- Incomplete authenticated closing-PR data fails the audit as a tool error instead of producing a false-clean result.
+- Missing issue node IDs, missing returned GraphQL issue nodes, and more than 100 closing-PR references fail authenticated `SQ004` as a tool error instead of producing a false-clean result.
+- Null or incomplete closing-PR reference nodes are skipped, so `SQ004` may not report the pull requests they represent.
 
 ### Removed
 
