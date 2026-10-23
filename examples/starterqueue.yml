@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: VyxorDev/starterqueue
+          # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
+          ref: 3f8cee64f040216de0df99b40d8246b5a03df7db
           path: .starterqueue
 
       - uses: actions/setup-node@v4
