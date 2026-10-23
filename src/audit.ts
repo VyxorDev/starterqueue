@@ -107,7 +107,7 @@ export function auditIssue(
       level: "fail",
       message: `Issue belongs to closed milestone "${milestone.title}"`,
     });
-  } else if (milestone?.due_on) {
+  } else if (milestone?.state === "open" && milestone.due_on) {
     const dueOn = new Date(milestone.due_on);
     if (Number.isFinite(dueOn.getTime()) && dueOn.getTime() < now.getTime()) {
       findings.push({
