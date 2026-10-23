@@ -92,6 +92,44 @@ export function auditIssue(
     });
   }
 
+  if (issue.locked) {
+    findings.push({
+      code: "SQ007",
+      level: "fail",
+      message: "Issue conversation is locked",
+    });
+  }
+
+  const milestone = issue.milestone;
+  if (milestone?.state === "closed") {
+    findings.push({
+      code: "SQ008",
+      level: "fail",
+      message: `Issue belongs to closed milestone "${milestone.title}"`,
+    });
+  } else if (milestone?.due_on) {
+    const dueOn = new Date(milestone.due_on);
+    if (Number.isFinite(dueOn.getTime()) && dueOn.getTime() < now.getTime()) {
+      findings.push({
+        code: "SQ009",
+        level: "warn",
+        message: `Milestone "${milestone.title}" is past due (due ${dueOn.toISOString().slice(0, 10)})`,
+      });
+    }
+  }
+
+  const mergedPullRequests = issue.merged_pull_requests ?? [];
+  if (mergedPullRequests.length > 0) {
+    const refs = mergedPullRequests.map((pullRequest) => pullRequest.html_url).join(", ");
+    findings.push({
+      code: "SQ010",
+      level: "fail",
+      message: mergedPullRequests.length === 1
+        ? `Merged pull request ${refs} still references this open issue`
+        : `Merged pull requests ${refs} still reference this open issue`,
+    });
+  }
+
   const status = findings.some((finding) => finding.level === "fail")
     ? "fail"
     : findings.some((finding) => finding.level === "warn")
