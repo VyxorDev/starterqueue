@@ -87,6 +87,7 @@ test("GraphQL extraction separates and deduplicates open and merged references",
       nodes: [
         {
           source: {
+            __typename: "PullRequest",
             number: 51,
             title: "Open GraphQL PR",
             url: "https://github.com/example/project/pull/51",
@@ -96,6 +97,7 @@ test("GraphQL extraction separates and deduplicates open and merged references",
         },
         {
           source: {
+            __typename: "PullRequest",
             number: 52,
             title: "Merged GraphQL PR",
             url: "https://github.com/example/project/pull/52",
@@ -105,6 +107,7 @@ test("GraphQL extraction separates and deduplicates open and merged references",
         },
         {
           source: {
+            __typename: "PullRequest",
             number: 52,
             title: "Merged GraphQL PR",
             url: "https://github.com/example/project/pull/52",
@@ -114,11 +117,17 @@ test("GraphQL extraction separates and deduplicates open and merged references",
         },
         {
           source: {
+            __typename: "PullRequest",
             number: 53,
             title: "Closed unmerged GraphQL PR",
             url: "https://github.com/example/project/pull/53",
             state: "CLOSED",
             mergedAt: null,
+          },
+        },
+        {
+          source: {
+            __typename: "Issue",
           },
         },
       ],
@@ -130,6 +139,7 @@ test("GraphQL extraction separates and deduplicates open and merged references",
   assert.deepEqual(references.openPullRequests.map((pullRequest) => pullRequest.number), [51]);
   assert.deepEqual(references.mergedPullRequests.map((pullRequest) => pullRequest.number), [52]);
   assert.equal(references.hasNextPage, false);
+  assert.equal(references.requiresRestFallback, false);
 });
 
 test("GraphQL extraction exposes incomplete timelines for REST fallback", () => {
@@ -142,4 +152,19 @@ test("GraphQL extraction exposes incomplete timelines for REST fallback", () => 
   };
 
   assert.equal(extractGraphqlPullRequestReferences(issue).hasNextPage, true);
+});
+
+test("hidden GraphQL cross-reference sources require REST fallback", () => {
+  const issue: GraphqlCrossReferenceIssue = {
+    number: 9,
+    timelineItems: {
+      nodes: [{ source: null }],
+      pageInfo: { hasNextPage: false },
+    },
+  };
+
+  const references = extractGraphqlPullRequestReferences(issue);
+  assert.equal(references.requiresRestFallback, true);
+  assert.deepEqual(references.openPullRequests, []);
+  assert.deepEqual(references.mergedPullRequests, []);
 });
