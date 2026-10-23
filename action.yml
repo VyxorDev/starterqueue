@@ -1,0 +1,98 @@
+name: StarterQueue
+description: Audit a GitHub starter-issue queue for objective readiness problems.
+author: VyxorDev
+
+inputs:
+  repository:
+    description: Repository to audit in owner/repo form. Defaults to the current workflow repository.
+    required: false
+  token:
+    description: GitHub token for authenticated requests and SQ004 closing-pull-request detection.
+    required: false
+  label:
+    description: Starter issue label to audit.
+    required: false
+    default: good first issue
+  stale-days:
+    description: Days without activity before SQ003 warns.
+    required: false
+    default: '90'
+  fail-on:
+    description: Severity threshold that makes the action fail. Use none, fail, or warn.
+    required: false
+    default: fail
+  json:
+    description: Print the audit as versioned JSON instead of human-readable text.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: '20'
+
+    - name: Install StarterQueue dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --ignore-scripts --include=dev
+
+    - name: Build StarterQueue
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm run build
+
+    - name: Audit starter queue
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        STARTERQUEUE_REPOSITORY: ${{ inputs.repository }}
+        STARTERQUEUE_TOKEN: ${{ inputs.token }}
+        STARTERQUEUE_LABEL: ${{ inputs.label }}
+        STARTERQUEUE_STALE_DAYS: ${{ inputs.stale-days }}
+        STARTERQUEUE_FAIL_ON: ${{ inputs.fail-on }}
+        STARTERQUEUE_JSON: ${{ inputs.json }}
+      run: |
+        repository="$STARTERQUEUE_REPOSITORY"
+        if [[ -z "$repository" ]]; then
+          repository="$GITHUB_REPOSITORY"
+        fi
+
+        if [[ -z "$repository" ]]; then
+          echo "::error::StarterQueue could not determine which repository to audit."
+          exit 1
+        fi
+
+        args=(audit "$repository" --label "$STARTERQUEUE_LABEL" --stale-days "$STARTERQUEUE_STALE_DAYS")
+
+        case "$STARTERQUEUE_FAIL_ON" in
+          none|"") ;;
+          fail|warn) args+=(--fail-on "$STARTERQUEUE_FAIL_ON") ;;
+          *)
+            echo "::error::fail-on must be one of: none, fail, warn"
+            exit 1
+            ;;
+        esac
+
+        case "$STARTERQUEUE_JSON" in
+          true) args+=(--json) ;;
+          false|"") ;;
+          *)
+            echo "::error::json must be true or false"
+            exit 1
+            ;;
+        esac
+
+        if [[ -n "$STARTERQUEUE_TOKEN" ]]; then
+          export GH_TOKEN="$STARTERQUEUE_TOKEN"
+        else
+          unset GH_TOKEN || true
+        fi
+
+        node dist/src/cli.js "${args[@]}"
+
+branding:
+  icon: check-circle
+  color: green

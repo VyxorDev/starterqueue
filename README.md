@@ -4,7 +4,7 @@
 
 ### Keep your `good first issue` queue honest.
 
-StarterQueue is a small, read-only CLI that audits GitHub starter issues and flags tickets that are no longer genuinely ready for a newcomer.
+StarterQueue is a small, read-only CLI and GitHub Action that audits starter issues and flags tickets that are no longer genuinely ready for a newcomer.
 
 [![CI](https://github.com/VyxorDev/starterqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/VyxorDev/starterqueue/actions/workflows/ci.yml)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -69,13 +69,47 @@ Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; exp
 
 ## Quick start
 
-### Requirements
+### GitHub Action
+
+Starting with the `v0.2.0` release, the normal way to run StarterQueue in CI is a single Action step:
+
+```yaml
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+steps:
+  - name: Audit starter queue
+    uses: VyxorDev/starterqueue@v0.2.0
+    with:
+      token: ${{ github.token }}
+```
+
+The Action audits the current workflow repository by default and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
+
+For production workflows, prefer a reviewed release tag or immutable commit SHA instead of a floating branch.
+
+### Action inputs
+
+| Input | Default | Description |
+| :--- | :--- | :--- |
+| `repository` | current workflow repository | Repository to audit in `owner/repo` form |
+| `token` | none | GitHub token for authenticated requests and `SQ004`; `${{ github.token }}` is recommended |
+| `label` | `good first issue` | Starter issue label to audit |
+| `stale-days` | `90` | Days without activity before `SQ003` warns |
+| `fail-on` | `fail` | Failure threshold: `none`, `fail`, or `warn` |
+| `json` | `false` | Print versioned JSON instead of human-readable text |
+
+A ready-to-copy scheduled workflow is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
+
+### Run locally
+
+Requirements:
 
 - Node.js **20 or newer**
 - npm
 - Optional but recommended: `GH_TOKEN` for authenticated GitHub requests and `SQ004`
-
-### Run locally
 
 ```bash
 npm ci
@@ -104,11 +138,11 @@ node dist/src/cli.js audit owner/repo --json
 
 StarterQueue defaults to:
 
-| Setting | Default |
-| :--- | :--- |
-| Starter label | `good first issue` |
-| Inactivity threshold | `90` days |
-| CI failure threshold | disabled |
+| Setting | CLI default | Action default |
+| :--- | :--- | :--- |
+| Starter label | `good first issue` | `good first issue` |
+| Inactivity threshold | `90` days | `90` days |
+| CI failure threshold | disabled | `fail` |
 
 Override values from the CLI:
 
@@ -120,11 +154,22 @@ node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45
 
 `--stale-days` must be a positive integer.
 
+For the Action, pass the corresponding `with:` inputs:
+
+```yaml
+- uses: VyxorDev/starterqueue@v0.2.0
+  with:
+    token: ${{ github.token }}
+    label: starter task
+    stale-days: '45'
+    fail-on: warn
+```
+
 ---
 
-## Use StarterQueue in CI
+## CI behavior
 
-By default, audit findings are reported without making the process fail. Add `--fail-on` when you want StarterQueue to act as a CI gate.
+By default, the CLI reports findings without making the process fail. Add `--fail-on` when you want it to act as a CI gate.
 
 ```bash
 # Exit 2 when at least one FAIL finding exists.
@@ -133,6 +178,8 @@ node dist/src/cli.js audit owner/repo --fail-on fail
 # Exit 2 when at least one WARN or FAIL finding exists.
 node dist/src/cli.js audit owner/repo --fail-on warn
 ```
+
+The GitHub Action defaults `fail-on` to `fail`, because CI gating is its primary use case. Set `fail-on: none` when you only want a report.
 
 ### Exit codes
 
@@ -143,55 +190,6 @@ node dist/src/cli.js audit owner/repo --fail-on warn
 | `2` | Audit completed successfully, but findings violated `--fail-on` |
 
 Keeping tool failures separate from audit failures makes CI logs and automation easier to reason about.
-
-### GitHub Actions
-
-A ready-to-copy example is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
-
-Until StarterQueue is published as a package or dedicated Marketplace Action, the workflow checks out this repository into a subdirectory, installs from the lockfile, builds the CLI, and audits the repository in which the workflow is running. The StarterQueue checkout is pinned to an immutable reviewed commit SHA rather than floating `main`; update that SHA deliberately after reviewing newer StarterQueue changes.
-
-```yaml
-name: StarterQueue
-
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 8 * * 1"
-
-permissions:
-  contents: read
-  issues: read
-  pull-requests: read
-
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: VyxorDev/starterqueue
-          # Immutable reviewed StarterQueue revision. Update deliberately after reviewing upstream changes.
-          ref: 6122489847298e2c612387d478fd339463a1857d
-          path: .starterqueue
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: .starterqueue/package-lock.json
-
-      - run: npm ci
-        working-directory: .starterqueue
-
-      - run: npm run build
-        working-directory: .starterqueue
-
-      - name: Audit starter queue
-        working-directory: .starterqueue
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node dist/src/cli.js audit "${{ github.repository }}" --fail-on fail
-```
 
 ---
 
@@ -267,7 +265,7 @@ StarterQueue intentionally stays small and boring in the best way:
 - **Objective first** — rules are based on verifiable GitHub state, not subjective “difficulty” scoring.
 - **Low API overhead** — reuse or batch GitHub responses whenever correctness allows it.
 - **Explainable output** — every failure or warning has a stable `SQ###` rule code.
-- **Automation-friendly** — human text, versioned JSON, and distinct CI exit codes serve different consumers cleanly.
+- **Automation-friendly** — human text, versioned JSON, distinct CI exit codes, and a reusable GitHub Action serve different consumers cleanly.
 - **Reproducible** — dependency versions are locked and CI installs with `npm ci`.
 
 ---
@@ -278,9 +276,9 @@ StarterQueue is intentionally focused on whether a starter issue is **actually a
 
 Future work may cover:
 
-- simpler distribution through a package or dedicated GitHub Action;
 - repository-specific queue policies;
-- additional objective forms of starter-queue rot when real-world false passes justify them.
+- additional objective forms of starter-queue rot when real-world false passes justify them;
+- a prebuilt Action runtime if real usage shows startup time matters.
 
 New rules should stay narrow, testable, and evidence-based.
 
