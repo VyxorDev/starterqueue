@@ -67,29 +67,72 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
+
+          RELEASE_TAG="v0.2.0"
           RELEASE_SHA="$(git rev-parse HEAD)"
+          TARBALL="starterqueue-0.2.0.tgz"
+          CHECKSUMS="SHA256SUMS.txt"
 
-          if gh release view v0.2.0 >/dev/null 2>&1; then
-            IS_DRAFT="$(gh release view v0.2.0 --json isDraft --jq '.isDraft')"
-            IS_PRERELEASE="$(gh release view v0.2.0 --json isPrerelease --jq '.isPrerelease')"
-            TARGET_COMMITISH="$(gh release view v0.2.0 --json targetCommitish --jq '.targetCommitish')"
-            ASSET_NAMES="$(gh release view v0.2.0 --json assets --jq '.assets[].name')"
+          resolve_remote_tag_commit() {
+            local tag="$1"
 
-            if [[ "$IS_DRAFT" == "false" && "$IS_PRERELEASE" == "false" ]] \
-              && [[ "$TARGET_COMMITISH" == "$RELEASE_SHA" ]] \
-              && grep -Fxq "starterqueue-0.2.0.tgz" <<<"$ASSET_NAMES" \
-              && grep -Fxq "SHA256SUMS.txt" <<<"$ASSET_NAMES"; then
-              echo "Published GitHub release v0.2.0 already exists at the expected commit with the expected assets."
+            if ! git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
+              return 1
+            fi
+
+            git fetch --no-tags origin "+refs/tags/$tag:refs/tags/$tag"
+            git rev-list -n 1 "$tag"
+          }
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+            IS_PRERELEASE="$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')"
+            TAG_COMMIT="$(resolve_remote_tag_commit "$RELEASE_TAG")" || {
+              echo "GitHub release $RELEASE_TAG exists but its remote tag is missing or invalid."
+              exit 1
+            }
+
+            if [[ "$IS_DRAFT" != "false" || "$IS_PRERELEASE" != "false" || "$TAG_COMMIT" != "$RELEASE_SHA" ]]; then
+              echo "GitHub release $RELEASE_TAG exists but does not match the expected published state or commit."
+              exit 1
+            fi
+
+            rm -rf existing-release
+            mkdir -p existing-release
+            gh release download "$RELEASE_TAG" \
+              --pattern "$TARBALL" \
+              --pattern "$CHECKSUMS" \
+              --dir existing-release
+
+            if cmp -s "$TARBALL" "existing-release/$TARBALL" \
+              && cmp -s "$CHECKSUMS" "existing-release/$CHECKSUMS"; then
+              echo "Published GitHub release $RELEASE_TAG already exists at the expected commit with byte-identical assets."
               exit 0
             fi
 
-            echo "GitHub release v0.2.0 exists but does not match the expected release state."
+            echo "GitHub release $RELEASE_TAG exists but its published assets differ from the validated artifacts."
             exit 1
           fi
 
-          gh release create v0.2.0 \
+          if TAG_COMMIT="$(resolve_remote_tag_commit "$RELEASE_TAG")"; then
+            if [[ "$TAG_COMMIT" != "$RELEASE_SHA" ]]; then
+              echo "Remote tag $RELEASE_TAG already exists at $TAG_COMMIT instead of $RELEASE_SHA."
+              exit 1
+            fi
+
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "StarterQueue v0.2.0" \
+              --notes-file RELEASE_NOTES.md \
+              "$TARBALL#npm package tarball" \
+              "$CHECKSUMS#SHA-256 checksums"
+            exit 0
+          fi
+
+          gh release create "$RELEASE_TAG" \
             --target "$RELEASE_SHA" \
             --title "StarterQueue v0.2.0" \
             --notes-file RELEASE_NOTES.md \
-            "starterqueue-0.2.0.tgz#npm package tarball" \
-            "SHA256SUMS.txt#SHA-256 checksums"
+            "$TARBALL#npm package tarball" \
+            "$CHECKSUMS#SHA-256 checksums"
