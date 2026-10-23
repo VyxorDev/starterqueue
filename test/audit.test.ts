@@ -10,6 +10,7 @@ function issue(overrides: Partial<StarterIssue> = {}): StarterIssue {
     number: 1,
     title: "Starter task",
     html_url: "https://github.com/example/project/issues/1",
+    body: null,
     assignees: [],
     updated_at: "2026-10-20T00:00:00Z",
     labels: [{ name: "good first issue" }],
@@ -66,4 +67,22 @@ test("starter issue referenced by an open pull request fails with SQ004", () => 
   const finding = result.findings.find((candidate) => candidate.code === "SQ004");
   assert.ok(finding);
   assert.match(finding.message, new RegExp(pullRequestUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("issue explicitly marked not ready for contributions fails with SQ005", () => {
+  const result = auditIssue(issue({
+    body: "**This issue is not ready for contributions yet.** Please wait for maintainer review.",
+  }), NOW);
+
+  assert.equal(result.status, "fail");
+  assert.ok(result.findings.some((finding) => finding.code === "SQ005"));
+});
+
+test("contributor saying they are not ready to contribute does not trigger SQ005", () => {
+  const result = auditIssue(issue({
+    body: "I'm not ready to contribute code, but others are welcome to work on this.",
+  }), NOW);
+
+  assert.equal(result.status, "pass");
+  assert.ok(!result.findings.some((finding) => finding.code === "SQ005"));
 });
