@@ -7,13 +7,25 @@ on:
         description: Type v0.2.0 to publish the release.
         required: true
         type: string
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: github.repository == 'VyxorDev/starterqueue'
+    if: >-
+      github.repository == 'VyxorDev/starterqueue' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' &&
+          github.actor == 'VyxorDev' &&
+          startsWith(github.event.head_commit.message, 'chore: publish v0.2.0')
+        )
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -24,11 +36,18 @@ jobs:
       - name: Confirm release intent
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RELEASE_CONFIRM: ${{ inputs.confirm }}
           DISPATCH_REF: ${{ github.ref }}
+          PUSH_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           test "$DISPATCH_REF" = "refs/heads/main"
-          test "$RELEASE_CONFIRM" = "v0.2.0"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            test "$RELEASE_CONFIRM" = "v0.2.0"
+          else
+            [[ "$PUSH_MESSAGE" == chore:\ publish\ v0.2.0* ]]
+          fi
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
