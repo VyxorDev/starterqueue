@@ -10,6 +10,7 @@ export interface StarterIssue {
   number: number;
   title: string;
   html_url: string;
+  body?: string | null;
   assignees: unknown[];
   updated_at: string;
   labels: GitHubLabel[];

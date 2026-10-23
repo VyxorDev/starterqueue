@@ -9,6 +9,8 @@ const BLOCKED_LABELS = new Set([
   "on-hold",
 ]);
 
+const EXPLICIT_NOT_READY_PATTERN = /\bnot\s+ready\s+for\s+contributions?\b/i;
+
 export interface AuditOptions {
   staleDays?: number;
 }
@@ -16,6 +18,10 @@ export interface AuditOptions {
 function normalizeLabel(label: GitHubLabel): string {
   if (typeof label === "string") return label.trim().toLowerCase();
   return (label.name ?? "").trim().toLowerCase();
+}
+
+function explicitlySaysNotReady(body: string | null | undefined): boolean {
+  return typeof body === "string" && EXPLICIT_NOT_READY_PATTERN.test(body);
 }
 
 export function auditIssue(
@@ -64,6 +70,14 @@ export function auditIssue(
       message: openPullRequests.length === 1
         ? `Open pull request ${refs} references this issue`
         : `Open pull requests ${refs} reference this issue`,
+    });
+  }
+
+  if (explicitlySaysNotReady(issue.body)) {
+    findings.push({
+      code: "SQ005",
+      level: "fail",
+      message: "Issue text explicitly says it is not ready for contributions",
     });
   }
 
