@@ -218,6 +218,11 @@ export function extractGraphqlPullRequestReferences(
       continue;
     }
 
+    if (!source.__typename) {
+      requiresRestFallback = true;
+      continue;
+    }
+
     if (source.__typename !== "PullRequest") continue;
 
     if (
@@ -286,20 +291,26 @@ async function fetchPullRequestReferencesGraphql(
 
   for (let offset = 0; offset < withNodeIds.length; offset += GRAPHQL_BATCH_SIZE) {
     const batch = withNodeIds.slice(offset, offset + GRAPHQL_BATCH_SIZE);
-    const data = await fetchGraphql<GraphqlNodesData>(
-      GRAPHQL_CROSS_REFERENCE_QUERY,
-      { ids: batch.map((issue) => issue.node_id) },
-      token,
-    );
 
-    for (const node of data.nodes ?? []) {
-      if (!node) continue;
-      const extracted = extractGraphqlPullRequestReferences(node);
-      if (extracted.hasNextPage || extracted.requiresRestFallback) continue;
-      references.set(node.number, {
-        openPullRequests: extracted.openPullRequests,
-        mergedPullRequests: extracted.mergedPullRequests,
-      });
+    try {
+      const data = await fetchGraphql<GraphqlNodesData>(
+        GRAPHQL_CROSS_REFERENCE_QUERY,
+        { ids: batch.map((issue) => issue.node_id) },
+        token,
+      );
+
+      for (const node of data.nodes ?? []) {
+        if (!node) continue;
+        const extracted = extractGraphqlPullRequestReferences(node);
+        if (extracted.hasNextPage || extracted.requiresRestFallback) continue;
+        references.set(node.number, {
+          openPullRequests: extracted.openPullRequests,
+          mergedPullRequests: extracted.mergedPullRequests,
+        });
+      }
+    } catch {
+      // Keep successful earlier batches. Issues from this batch simply fall back to REST.
+      continue;
     }
   }
 
@@ -331,14 +342,9 @@ export async function fetchStarterIssues(
     if (pageItems.length < 100) break;
   }
 
-  let graphqlReferences = new Map<number, PullRequestReferences>();
-  if (token && issues.length > 0) {
-    try {
-      graphqlReferences = await fetchPullRequestReferencesGraphql(issues, token);
-    } catch {
-      graphqlReferences = new Map<number, PullRequestReferences>();
-    }
-  }
+  const graphqlReferences = token && issues.length > 0
+    ? await fetchPullRequestReferencesGraphql(issues, token)
+    : new Map<number, PullRequestReferences>();
 
   const enriched: StarterIssue[] = [];
   for (const issue of issues) {
