@@ -2,6 +2,27 @@
 
 All notable changes to StarterQueue are documented here.
 
+## [0.2.0] - 2026-10-23
+
+StarterQueue v0.2.0 adds a first-class reusable GitHub Action while preserving the existing CLI and audit semantics.
+
+### Added
+
+- Root `action.yml` metadata so StarterQueue can be invoked directly from GitHub Actions workflows.
+- Action inputs for `repository`, `token`, `label`, `stale-days`, `fail-on`, and `json`.
+- A local Action smoke test in CI that exercises `uses: ./` against the real StarterQueue audit path.
+
+### Changed
+
+- The recommended GitHub Actions setup is now a single `uses: VyxorDev/starterqueue@v0.2.0` step instead of manually checking out, installing, building, and invoking the CLI.
+- The Action defaults to auditing the current workflow repository and to failing the job on `FAIL` findings unless configured otherwise.
+- Action dependency installation explicitly includes development dependencies so the TypeScript build still works when a caller sets `NODE_ENV=production`.
+
+### Compatibility
+
+- The CLI, audit rules (`SQ001`–`SQ009`), exit-code contract, and JSON `schema_version: 1` remain unchanged from v0.1.0.
+- StarterQueue remains read-only. The recommended authenticated workflow uses read-only `contents`, `issues`, and `pull-requests` permissions.
+
 ## [0.1.0] - 2026-10-23
 
 StarterQueue's first public release.
