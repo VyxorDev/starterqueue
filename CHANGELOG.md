@@ -2,6 +2,28 @@
 
 All notable changes to StarterQueue are documented here.
 
+## [0.5.0] - 2026-10-24
+
+StarterQueue v0.5.0 introduces a keyboard-first interactive terminal UI while preserving the existing scriptable CLI and GitHub Action.
+
+### Added
+
+- Running `starterqueue` without arguments in a real terminal now opens a full-screen interactive UI.
+- A minimal Obsidian / Silver / Frost Blue welcome screen accepts `owner/repo` or a GitHub repository URL.
+- Live audit progress, PASS/WARN/FAIL totals, a searchable and filterable results explorer, and scrollable issue findings.
+- Keyboard navigation: arrow keys and Enter, `F` to cycle severity filters, `/` to search, `O` to open the selected issue in a browser, `R` for a new audit, `Esc` to go back, and `Ctrl+C` to exit.
+- Responsive compact terminal layouts, a visible shortcut footer, help navigation, a resize fallback for Windows terminals, and a `NO_COLOR` fallback.
+- Graceful cancellation of in-flight GitHub requests when exiting the interactive UI.
+- Regression tests for terminal layout, filtering, empty states, input sanitization, browser URL validation, cancellation, and non-interactive CLI compatibility.
+
+### Compatibility
+
+- `starterqueue audit owner/repo` remains the supported non-interactive command for scripts and CI, including `--json`, `--policy`, `--rule-level`, and `--fail-on`.
+- Running `starterqueue` without arguments in a non-TTY environment reports usage and exits with a tool error instead of launching a terminal UI.
+- Audit detection rules `SQ001`–`SQ009`, default severity policy, exit codes, JSON `schema_version: 1`, and the GitHub Action remain unchanged.
+- `GH_TOKEN` is still required for `SQ004` closing-PR detection; other rules can run without it.
+- No new runtime dependencies. StarterQueue remains read-only.
+
 ## [0.4.0] - 2026-10-24
 
 StarterQueue v0.4.0 adds repository-specific severity tuning without changing any detection rule.
