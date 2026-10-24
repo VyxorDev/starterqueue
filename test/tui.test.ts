@@ -59,7 +59,7 @@ test("results window stays within bounds", () => {
 test("empty-state messages distinguish empty queues from filtered results", () => {
   assert.deepEqual(emptyResultsMessage(0, "all", ""), {
     title: "No open starter issues found",
-    hint: "This repository has no open 'good first issue' tickets. Press R to try another repository.",
+    hint: "No open 'good first issue' tickets in this repo. Press R for a new audit.",
   });
   assert.equal(emptyResultsMessage(5, "fail", "").title, "No FAIL issues");
   assert.equal(emptyResultsMessage(5, "all", "xyz").title, "No search matches");

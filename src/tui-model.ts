@@ -53,7 +53,7 @@ export function emptyResultsMessage(
   if (total === 0) {
     return {
       title: "No open starter issues found",
-      hint: "This repository has no open 'good first issue' tickets. Press R to try another repository.",
+      hint: "No open 'good first issue' tickets in this repo. Press R for a new audit.",
     };
   }
   if (search.trim()) {

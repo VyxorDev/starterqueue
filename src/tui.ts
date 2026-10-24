@@ -179,6 +179,8 @@ class TerminalApp {
     else if (key.name === "escape" || text === "r") {
       this.screen = "welcome";
       this.inputFocused = true;
+      this.menuIndex = 0;
+      this.repoInput = "";
       this.notice = "";
     } else if (text === "f") {
       this.filter = nextIssueFilter(this.filter);
