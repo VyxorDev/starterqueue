@@ -25,10 +25,22 @@ test("clean starter issue passes", () => {
   assert.equal(auditIssue(issue(), NOW).status, "pass");
 });
 
-test("assigned starter issue fails with SQ001", () => {
+test("assigned starter issue warns under balanced policy with SQ001", () => {
   const result = auditIssue(issue({ assignees: [{ login: "dev" }] }), NOW);
+  assert.equal(result.status, "warn");
+  assert.equal(result.findings[0]?.code, "SQ001");
+  assert.equal(result.findings[0]?.level, "warn");
+});
+
+test("assigned starter issue fails under strict policy with SQ001", () => {
+  const result = auditIssue(
+    issue({ assignees: [{ login: "dev" }] }),
+    NOW,
+    { policy: "strict" },
+  );
   assert.equal(result.status, "fail");
   assert.equal(result.findings[0]?.code, "SQ001");
+  assert.equal(result.findings[0]?.level, "fail");
 });
 
 test("blocked starter issue fails with SQ002", () => {
@@ -96,7 +108,7 @@ test("contributor saying they are not ready to contribute does not trigger SQ005
   assert.ok(!result.findings.some((finding) => finding.code === "SQ005"));
 });
 
-test("issue blocked by a GitHub issue dependency fails with SQ006", () => {
+test("issue blocked by a GitHub issue dependency warns under balanced policy with SQ006", () => {
   const result = auditIssue(issue({
     issue_dependencies_summary: {
       blocked_by: 1,
@@ -106,10 +118,24 @@ test("issue blocked by a GitHub issue dependency fails with SQ006", () => {
     },
   }), NOW);
 
+  assert.equal(result.status, "warn");
+  const finding = result.findings.find((candidate) => candidate.code === "SQ006");
+  assert.ok(finding);
+  assert.equal(finding.level, "warn");
+  assert.equal(finding.message, "Issue is blocked by 1 open GitHub issue dependency");
+});
+
+test("issue blocked by a GitHub issue dependency fails under strict policy", () => {
+  const result = auditIssue(
+    issue({ issue_dependencies_summary: { blocked_by: 1 } }),
+    NOW,
+    { policy: "strict" },
+  );
+
   assert.equal(result.status, "fail");
   const finding = result.findings.find((candidate) => candidate.code === "SQ006");
   assert.ok(finding);
-  assert.equal(finding.message, "Issue is blocked by 1 open GitHub issue dependency");
+  assert.equal(finding.level, "fail");
 });
 
 test("SQ006 reports multiple open GitHub issue dependencies", () => {
