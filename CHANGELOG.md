@@ -2,6 +2,46 @@
 
 All notable changes to StarterQueue are documented here.
 
+## [0.4.0] - 2026-10-24
+
+StarterQueue v0.4.0 adds repository-specific severity tuning without changing any detection rule.
+
+### Added
+
+- Repeatable CLI overrides with `--rule-level SQ###=warn|fail`.
+- A `rule-levels` GitHub Action input for comma-separated overrides such as `SQ001=fail,SQ009=fail`.
+- JSON output now records explicit overrides in `configuration.rule_levels` while retaining `schema_version: 1`.
+- Regression coverage for override parsing, policy precedence, JSON output, and the local Action path.
+
+### Behavior
+
+- The selected `balanced` or `strict` policy still establishes the baseline severity for every rule.
+- Explicit per-rule overrides take precedence over that policy.
+- Repeated CLI overrides are allowed; the last value for a rule wins.
+- Only existing rules `SQ001` through `SQ009` and levels `warn` or `fail` are accepted.
+- Detection logic remains unchanged: overrides only change how an already-detected fact is classified.
+
+### Examples
+
+```bash
+starterqueue audit owner/repo --policy balanced --rule-level SQ009=fail
+starterqueue audit owner/repo --policy strict --rule-level SQ001=warn
+```
+
+```yaml
+- uses: VyxorDev/starterqueue@v0.4.0
+  with:
+    policy: balanced
+    rule-levels: SQ001=fail,SQ009=fail
+```
+
+### Compatibility
+
+- Existing users who do not configure overrides keep the v0.3.0 behavior.
+- Audit rules `SQ001`–`SQ009`, exit codes, and `--fail-on` semantics are unchanged.
+- `configuration.rule_levels` is additive, so JSON `schema_version` remains `1`.
+- StarterQueue remains read-only.
+
 ## [0.3.0] - 2026-10-24
 
 StarterQueue v0.3.0 separates factual detection from severity judgment so ambiguous readiness signals do not automatically count as hard failures.
