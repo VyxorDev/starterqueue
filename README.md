@@ -179,8 +179,6 @@ node dist/src/cli.js
 </p>
 </details>
 
-The interactive interface uses the Obsidian / Silver / Frost Blue palette, with a welcome prompt for an `owner/repo` or GitHub URL, live audit state, a searchable issue explorer, severity filters, scrollable issue details and a shortcut to open an issue in your browser. Press `F` to filter, `/` to search, `Enter` to view details, `O` to open an issue, `R` for a new audit, `Esc` to go back, or `Ctrl+C` to exit. Use `?` from the results screen for help.
-
 The UI runs only when stdin and stdout are terminals. Automation continues to use `starterqueue audit owner/repo`, including `--json` and `--fail-on`. No audit rule, policy, schema or GitHub Action behavior is changed by the interface. `GH_TOKEN` is still required for SQ004 detection.
 
 ### Run locally
