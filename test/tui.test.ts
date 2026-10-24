@@ -6,6 +6,7 @@ import {
   nextIssueFilter,
   emptyResultsMessage,
   availableContentRows,
+  terminalLayout,
   wrapTerminalText,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
@@ -65,6 +66,22 @@ test("empty-state messages distinguish empty queues from filtered results", () =
   });
   assert.equal(emptyResultsMessage(5, "fail", "").title, "No FAIL issues");
   assert.equal(emptyResultsMessage(5, "all", "xyz").title, "No search matches");
+});
+
+test("terminal layout adapts to resized narrow and short windows", () => {
+  assert.deepEqual(terminalLayout(80, 24), {
+    width: 80, height: 24, contentWidth: 72, indent: 4, compact: false, tooSmall: false,
+  });
+  assert.deepEqual(terminalLayout(54, 16), {
+    width: 54, height: 16, contentWidth: 46, indent: 4, compact: true, tooSmall: false,
+  });
+  assert.deepEqual(terminalLayout(44, 16), {
+    width: 44, height: 16, contentWidth: 36, indent: 4, compact: true, tooSmall: false,
+  });
+  assert.equal(terminalLayout(43, 16).tooSmall, true);
+  assert.equal(terminalLayout(60, 15).tooSmall, true);
+  assert.equal(terminalLayout(150, 40).contentWidth, 88);
+  assert.equal(terminalLayout(20, 5).contentWidth, 12);
 });
 
 test("footer-aware viewport reserves room for navigation hints", () => {

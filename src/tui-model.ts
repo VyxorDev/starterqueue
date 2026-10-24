@@ -71,6 +71,29 @@ export function emptyResultsMessage(
   return { title: "Nothing to show", hint: "Press R to start another audit." };
 }
 
+export interface TerminalLayout {
+  width: number;
+  height: number;
+  contentWidth: number;
+  indent: number;
+  compact: boolean;
+  tooSmall: boolean;
+}
+
+export function terminalLayout(columns: number, rows: number): TerminalLayout {
+  const width = Math.max(1, Math.floor(columns || 80));
+  const height = Math.max(1, Math.floor(rows || 24));
+  const contentWidth = Math.min(Math.max(1, width - 8), 88);
+  return {
+    width,
+    height,
+    contentWidth,
+    indent: Math.max(0, Math.floor((width - contentWidth) / 2)),
+    compact: width < 70 || height < 22,
+    tooSmall: width < 44 || height < 16,
+  };
+}
+
 export function availableContentRows(height: number, usedRows: number, reservedRows = 0): number {
   // One terminal row is deliberately unused to avoid triggering auto-scroll.
   // The two final rows are reserved for the footer divider and shortcuts.

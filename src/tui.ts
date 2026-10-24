@@ -7,6 +7,7 @@ import {
   nextIssueFilter,
   emptyResultsMessage,
   availableContentRows,
+  terminalLayout,
   wrapTerminalText,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
@@ -50,6 +51,10 @@ class TerminalApp {
   private searchFocused = false;
   private selected = 0;
   private detailScroll = 0;
+  private helpScroll = 0;
+  private lastColumns = 0;
+  private lastRows = 0;
+  private resizePoll: ReturnType<typeof setInterval> | undefined;
   private progress = "";
   private errorMessage = "";
   private spinnerIndex = 0;
@@ -75,6 +80,14 @@ class TerminalApp {
     process.on("SIGTERM", this.onSignal);
     this.output.write(ESC + "?1049h" + ESC + "?25l");
     this.render();
+    // Some Windows terminals do not reliably emit a resize event.
+    // Poll dimensions as a lightweight fallback; redraw only on change.
+    this.resizePoll = setInterval(() => {
+      const columns = this.output.columns || this.lastColumns;
+      const rows = this.output.rows || this.lastRows;
+      if (columns !== this.lastColumns || rows !== this.lastRows) this.render();
+    }, 250);
+    this.resizePoll.unref();
     return new Promise<void>((resolve) => {
       this.resolveDone = resolve;
     });
@@ -95,6 +108,14 @@ class TerminalApp {
     else if (this.screen === "help") {
       if (key.name === "escape" || key.name === "return" || key.name === "backspace") {
         this.screen = this.previousScreen;
+      } else if (key.name === "up") {
+        this.helpScroll = Math.max(0, this.helpScroll - 1);
+      } else if (key.name === "down") {
+        this.helpScroll += 1;
+      } else if (key.name === "pageup") {
+        this.helpScroll = Math.max(0, this.helpScroll - 6);
+      } else if (key.name === "pagedown") {
+        this.helpScroll += 6;
       }
     } else if (this.screen === "error") {
       if (key.name === "escape" || key.name === "return") {
@@ -109,6 +130,8 @@ class TerminalApp {
     if (this.finished) return;
     this.finished = true;
     this.stopSpinner();
+    if (this.resizePoll) clearInterval(this.resizePoll);
+    this.resizePoll = undefined;
     this.auditController?.abort();
     this.input.off("keypress", this.onKeypress);
     this.output.off("resize", this.onResize);
@@ -229,6 +252,7 @@ class TerminalApp {
 
   private openHelp(): void {
     this.previousScreen = this.screen;
+    this.helpScroll = 0;
     this.screen = "help";
   }
 
@@ -324,11 +348,12 @@ class TerminalApp {
 
   private render(): void {
     if (this.finished) return;
-    const width = this.output.columns || 80;
-    const height = this.output.rows || 24;
+    const layout = terminalLayout(this.output.columns || this.lastColumns || 80, this.output.rows || this.lastRows || 24);
+    const { width, height, contentWidth, compact, tooSmall } = layout;
+    this.lastColumns = width;
+    this.lastRows = height;
     const lines: string[] = [];
-    const contentWidth = Math.max(18, Math.min(width - 8, 88));
-    const indent = " ".repeat(Math.max(2, Math.floor((width - contentWidth) / 2)));
+    const indent = " ".repeat(layout.indent);
     const add = (value = ""): void => { lines.push(indent + value); };
     const label = (value: string): string => this.color(value, "muted");
     const title = (value: string): string => this.color(value, "silver", true);
@@ -336,11 +361,11 @@ class TerminalApp {
     const separator = "─".repeat(contentWidth);
     let footer = "Ctrl+C  Exit";
 
-    if (width < 54 || height < 22) {
+    if (tooSmall) {
       add("");
-      add(title("starterqueue"));
+      add(title(truncateText("starterqueue", contentWidth)));
       add("");
-      add("Resize your terminal to at least 54 × 22.");
+      add(label(truncateText("Resize terminal (min 44 × 16).", contentWidth)));
     } else {
       add("");
       add(accent("◆") + " " + title("starterqueue"));
@@ -348,17 +373,17 @@ class TerminalApp {
       add("");
 
       if (this.screen === "welcome") {
-        add("");
+        if (!compact) add("");
         add(title("Welcome."));
-        add(label("A clearer view of your contribution queue."));
+        if (!compact) add(label("A clearer view of your contribution queue."));
         add("");
-        add("");
+        if (!compact) add("");
         add(label("REPOSITORY"));
         const entered = truncateText(this.repoInput, contentWidth - 7);
         add((this.inputFocused ? accent("› ") : label("  ")) + (entered ? title(entered) : label("owner/repository")) + (this.inputFocused ? accent("▍") : ""));
-        add(label("Paste a GitHub URL or type owner/repo."));
+        if (!compact) add(label("Paste a GitHub URL or type owner/repo."));
         add("");
-        add("");
+        if (!compact) add("");
         const actions = ["Start audit", "Help & shortcuts", "Exit"];
         actions.forEach((action, index) => {
           const selected = !this.inputFocused && this.menuIndex === index;
@@ -368,7 +393,9 @@ class TerminalApp {
           add("");
           add(this.color(truncateText(this.notice, contentWidth), "coral"));
         }
-        footer = "Type repository  ·  ↑↓ Menu  ·  Tab Focus  ·  Enter Select";
+        footer = compact
+          ? "Type repo · ↑↓ Menu · Tab · Enter"
+          : "Type repository  ·  ↑↓ Menu  ·  Tab Focus  ·  Enter Select";
       } else if (this.screen === "auditing") {
         add("");
         add(title("Auditing " + truncateText(this.repository, contentWidth - 9)));
@@ -385,14 +412,16 @@ class TerminalApp {
         const summary = summarizeAudit(this.results);
         const items = visibleResults(this.results, this.filter, this.search);
         add(title(truncateText(this.repository, contentWidth)));
-        add(label("Audit complete  ·  " + summary.total + " issues"));
-        add("");
+        if (!compact) {
+          add(label("Audit complete  ·  " + summary.total + " issues"));
+          add("");
+        }
         add(this.color("PASS " + summary.pass, "green", true) + "    " +
           this.color("WARN " + summary.warn, "amber", true) + "    " +
           this.color("FAIL " + summary.fail, "coral", true));
-        add("");
-        add(label("FILTER  ") + accent(this.filter.toUpperCase()) + label("  ·  Press F to cycle"));
-        add(label("SEARCH  ") + (this.search ? title(truncateText(this.search, contentWidth - 14)) : label("All issues")) +
+        if (!compact) add("");
+        add(label("FILTER  ") + accent(this.filter.toUpperCase()) + (compact ? "" : label("  ·  Press F to cycle")));
+        add(label("SEARCH  ") + (this.search ? title(truncateText(this.search, contentWidth - 12)) : label("All issues")) +
           (this.searchFocused ? accent("▍") : ""));
         add(label(separator));
         const rows = Math.max(1, availableContentRows(height, lines.length, 2 + (this.notice ? 1 : 0)));
@@ -418,8 +447,8 @@ class TerminalApp {
         add(label("Showing " + items.length + " of " + summary.total + " issues"));
         if (this.notice) add(this.color(truncateText(this.notice, contentWidth), "frost"));
         footer = this.searchFocused
-          ? "Type to search  ·  Enter Done  ·  Esc Done"
-          : "↑↓ Browse  ·  Enter Details  ·  F Filter  ·  / Search  ·  O Open  ·  R New";
+          ? (compact ? "Type · Enter Done · Esc Done" : "Type to search  ·  Enter Done  ·  Esc Done")
+          : (compact ? "↑↓ · Enter · F · / · O · R · ?" : "↑↓ Browse  ·  Enter Details  ·  F Filter  ·  / Search  ·  O Open  ·  R New");
       } else if (this.screen === "detail") {
         const item = visibleResults(this.results, this.filter, this.search)[this.selected];
         if (!item) {
@@ -429,9 +458,9 @@ class TerminalApp {
         }
         add(this.color(item.status.toUpperCase(), this.statusTone(item.status), true) +
           "   " + title("#" + item.issue.number));
-        add("");
+        if (!compact) add("");
         add(title(truncateText(sanitizeTerminalText(item.issue.title), contentWidth)));
-        add("");
+        if (!compact) add("");
         add(label("FINDINGS"));
         const body: string[] = [];
         if (item.findings.length === 0) {
@@ -457,9 +486,11 @@ class TerminalApp {
         const available = Math.max(1, availableContentRows(height, lines.length));
         this.detailScroll = Math.min(this.detailScroll, Math.max(0, body.length - available));
         for (const line of body.slice(this.detailScroll, this.detailScroll + available)) add(line);
-        footer = body.length > available
-          ? "↑↓ Scroll  ·  PgUp/PgDn  ·  Esc Back  ·  O Open"
-          : "Esc Back  ·  O Open in browser";
+        footer = compact
+          ? "↑↓ Scroll · Esc Back · O Open"
+          : body.length > available
+            ? "↑↓ Scroll  ·  PgUp/PgDn  ·  Esc Back  ·  O Open"
+            : "Esc Back  ·  O Open in browser";
       } else if (this.screen === "help") {
         add(title("Keyboard shortcuts"));
         add("");
@@ -475,10 +506,12 @@ class TerminalApp {
           ["Esc", "Back / finish search"],
           ["Ctrl+C", "Exit StarterQueue"],
         ];
-        for (const [key, description] of shortcuts) {
-          add(accent(key.padEnd(10)) + label(description));
+        const available = Math.max(1, availableContentRows(height, lines.length));
+        this.helpScroll = Math.min(this.helpScroll, Math.max(0, shortcuts.length - available));
+        for (const [key, description] of shortcuts.slice(this.helpScroll, this.helpScroll + available)) {
+          add(accent(key.padEnd(10)) + label(truncateText(description, contentWidth - 10)));
         }
-        footer = "Esc  Back";
+        footer = compact ? "↑↓ Scroll · Esc Back" : "↑↓ Scroll · Esc Back";
       } else if (this.screen === "error") {
         add(this.color("Audit could not complete.", "coral", true));
         add("");
