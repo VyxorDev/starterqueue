@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Audit starter queue
-        uses: VyxorDev/starterqueue@v0.3.0
+        uses: VyxorDev/starterqueue@v0.5.0
         with:
           policy: balanced
           fail-on: fail
