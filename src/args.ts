@@ -50,8 +50,8 @@ export function parseAuditOptions(args: string[]): AuditCliOptions {
 
     if (arg === "--fail-on") {
       const value = optionValue(args, index, arg);
-      if (value !== "fail" && value !== "warn") {
-        throw new Error("--fail-on must be either 'fail' or 'warn'");
+      if (value !== "none" && value !== "fail" && value !== "warn") {
+        throw new Error("--fail-on must be one of: 'none', 'fail', or 'warn'");
       }
       failOn = value;
       index += 1;
