@@ -273,14 +273,15 @@ Queue health: 1/6 clean · 4 warning · 1 failing
 
 StarterQueue keeps correctness ahead of cleverness:
 
-- The open starter-issue queue is fetched through GitHub REST.
+- The open starter-issue queue is fetched through GitHub REST at 100 results per page until GitHub returns the final page; there is no fixed 1,000-response ceiling.
+- Transient network failures, HTTP `429`, and common GitHub `5xx` responses are retried up to three attempts with bounded backoff. Permanent client errors still fail immediately.
 - With `GH_TOKEN`, `SQ004` uses GitHub GraphQL `closedByPullRequestsReferences` in batches of 25 issues.
 - Only **open** pull requests from that structured closing relationship count for `SQ004`.
 - Generic issue/PR mentions and merged PR references are intentionally ignored; an open issue remains authoritative even if an old merged PR mentions it.
 - If authenticated GraphQL data is missing or paginated beyond the supported bound, StarterQueue exits with code `1` rather than guessing.
 - Without `GH_TOKEN`, StarterQueue skips `SQ004` and continues with the remaining rules.
 
-This is intentionally conservative: a missed optional signal is preferable to a false accusation that a starter issue is already taken.
+This is intentionally conservative: temporary API instability is retried, but incomplete or permanently failed data is never presented as a clean audit.
 
 ---
 
