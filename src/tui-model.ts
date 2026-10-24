@@ -71,6 +71,37 @@ export function emptyResultsMessage(
   return { title: "Nothing to show", hint: "Press R to start another audit." };
 }
 
+export function availableContentRows(height: number, usedRows: number, reservedRows = 0): number {
+  // One terminal row is deliberately unused to avoid triggering auto-scroll.
+  // The two final rows are reserved for the footer divider and shortcuts.
+  return Math.max(0, height - 3 - usedRows - reservedRows);
+}
+
+export function wrapTerminalText(value: string, width: number): string[] {
+  if (width <= 0) return [];
+  const clean = sanitizeTerminalText(value);
+  if (!clean) return [""];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of clean.split(" ")) {
+    const remaining = Array.from(word);
+    while (remaining.length > 0) {
+      const room = width - (current ? Array.from(current).length + 1 : 0);
+      if (room < remaining.length && current) {
+        lines.push(current);
+        current = "";
+      } else if (remaining.length <= room) {
+        current += (current ? " " : "") + remaining.join("");
+        remaining.length = 0;
+      } else {
+        lines.push(remaining.splice(0, width).join(""));
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 export function safeGitHubIssueUrl(input: string): string | null {
   try {
     const url = new URL(input);

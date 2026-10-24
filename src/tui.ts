@@ -6,6 +6,8 @@ import { summarizeAudit } from "./output.js";
 import {
   nextIssueFilter,
   emptyResultsMessage,
+  availableContentRows,
+  wrapTerminalText,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
   truncateText,
@@ -47,6 +49,7 @@ class TerminalApp {
   private search = "";
   private searchFocused = false;
   private selected = 0;
+  private detailScroll = 0;
   private progress = "";
   private errorMessage = "";
   private spinnerIndex = 0;
@@ -175,7 +178,10 @@ class TerminalApp {
     else if (key.name === "down") this.selected = Math.min(items.length - 1, this.selected + 1);
     else if (key.name === "pageup") this.selected = Math.max(0, this.selected - 8);
     else if (key.name === "pagedown") this.selected = Math.min(items.length - 1, this.selected + 8);
-    else if (key.name === "return" && items[this.selected]) this.screen = "detail";
+    else if (key.name === "return" && items[this.selected]) {
+      this.detailScroll = 0;
+      this.screen = "detail";
+    }
     else if (key.name === "escape" || text === "r") {
       this.screen = "welcome";
       this.inputFocused = true;
@@ -206,6 +212,14 @@ class TerminalApp {
       this.openIssue(items[this.selected]);
     } else if (key.name === "return") {
       this.screen = "results";
+    } else if (key.name === "up") {
+      this.detailScroll = Math.max(0, this.detailScroll - 1);
+    } else if (key.name === "down") {
+      this.detailScroll += 1;
+    } else if (key.name === "pageup") {
+      this.detailScroll = Math.max(0, this.detailScroll - 8);
+    } else if (key.name === "pagedown") {
+      this.detailScroll += 8;
     }
   }
 
@@ -322,11 +336,11 @@ class TerminalApp {
     const separator = "─".repeat(contentWidth);
     let footer = "Ctrl+C  Exit";
 
-    if (width < 54 || height < 16) {
+    if (width < 54 || height < 22) {
       add("");
       add(title("starterqueue"));
       add("");
-      add("Resize your terminal to at least 54 × 16.");
+      add("Resize your terminal to at least 54 × 22.");
     } else {
       add("");
       add(accent("◆") + " " + title("starterqueue"));
@@ -381,7 +395,7 @@ class TerminalApp {
         add(label("SEARCH  ") + (this.search ? title(truncateText(this.search, contentWidth - 14)) : label("All issues")) +
           (this.searchFocused ? accent("▍") : ""));
         add(label(separator));
-        const rows = Math.max(2, height - 15);
+        const rows = Math.max(1, availableContentRows(height, lines.length, 2 + (this.notice ? 1 : 0)));
         const window = visibleWindow(this.selected, items.length, rows);
         if (items.length === 0) {
           const empty = emptyResultsMessage(summary.total, this.filter, this.search);
@@ -419,22 +433,33 @@ class TerminalApp {
         add(title(truncateText(sanitizeTerminalText(item.issue.title), contentWidth)));
         add("");
         add(label("FINDINGS"));
+        const body: string[] = [];
         if (item.findings.length === 0) {
-          add(this.color("No readiness problems detected.", "green"));
+          body.push(this.color("No readiness problems detected.", "green"));
+          body.push("");
         } else {
-          for (const finding of item.findings.slice(0, Math.max(1, height - 15))) {
-            add(this.color(finding.code + " " + finding.level.toUpperCase(), finding.level === "fail" ? "coral" : "amber"));
-            add(label(truncateText(finding.message, contentWidth - 2)));
-            add("");
+          for (const finding of item.findings) {
+            body.push(this.color(finding.code + " " + finding.level.toUpperCase(), finding.level === "fail" ? "coral" : "amber"));
+            for (const line of wrapTerminalText(finding.message, contentWidth - 2)) {
+              body.push(label(line));
+            }
+            body.push("");
           }
         }
-        add(label("ISSUE URL"));
-        add(accent(truncateText(item.issue.html_url, contentWidth)));
-        if (this.notice) {
-          add("");
-          add(label(truncateText(this.notice, contentWidth)));
+        body.push(label("ISSUE URL"));
+        for (const line of wrapTerminalText(item.issue.html_url, contentWidth)) {
+          body.push(accent(line));
         }
-        footer = "Esc Back  ·  O Open in browser";
+        if (this.notice) {
+          body.push("");
+          for (const line of wrapTerminalText(this.notice, contentWidth)) body.push(label(line));
+        }
+        const available = Math.max(1, availableContentRows(height, lines.length));
+        this.detailScroll = Math.min(this.detailScroll, Math.max(0, body.length - available));
+        for (const line of body.slice(this.detailScroll, this.detailScroll + available)) add(line);
+        footer = body.length > available
+          ? "↑↓ Scroll  ·  PgUp/PgDn  ·  Esc Back  ·  O Open"
+          : "Esc Back  ·  O Open in browser";
       } else if (this.screen === "help") {
         add(title("Keyboard shortcuts"));
         add("");
@@ -464,10 +489,13 @@ class TerminalApp {
       }
     }
 
+    // Reserve the final two visible rows for the divider and shortcuts.
+    // Never let a long issue list push navigation hints off-screen.
+    lines.length = Math.min(lines.length, Math.max(0, height - 3));
     while (lines.length < height - 3) lines.push("");
-    add(label(separator.slice(0, Math.max(0, contentWidth))));
+    add(label(separator));
     add(label(truncateText(footer, contentWidth)));
-    const rendered = lines.slice(0, Math.max(1, height - 1)).join("\n");
+    const rendered = lines.join("\n");
     this.output.write(ESC + "H" + ESC + "2J" + rendered + ESC + "0m");
   }
 }

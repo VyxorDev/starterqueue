@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   nextIssueFilter,
   emptyResultsMessage,
+  availableContentRows,
+  wrapTerminalText,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
   truncateText,
@@ -63,6 +65,23 @@ test("empty-state messages distinguish empty queues from filtered results", () =
   });
   assert.equal(emptyResultsMessage(5, "fail", "").title, "No FAIL issues");
   assert.equal(emptyResultsMessage(5, "all", "xyz").title, "No search matches");
+});
+
+test("footer-aware viewport reserves room for navigation hints", () => {
+  assert.equal(availableContentRows(33, 12, 2), 16);
+  assert.equal(availableContentRows(33, 12, 3), 15);
+  assert.equal(availableContentRows(22, 12, 2), 5);
+  assert.equal(availableContentRows(12, 12, 2), 0);
+});
+
+test("long findings wrap without hiding their closing PR links", () => {
+  const message = "Open pull request https://github.com/rust-lang/rust-clippy/pull/15992 is linked to close this issue";
+  const lines = wrapTerminalText(message, 34);
+  assert.ok(lines.length > 1);
+  assert.equal(lines.join(" ").replace(/\\s+/g, ""), message.replace(/\\s+/g, ""));
+  assert.ok(lines.every((line) => Array.from(line).length <= 34));
+  assert.deepEqual(wrapTerminalText("   ", 20), [""]);
+  assert.deepEqual(wrapTerminalText("hello", 0), []);
 });
 
 test("only normal GitHub issue URLs can launch a browser", () => {
