@@ -1,4 +1,5 @@
 import { DEFAULT_STALE_DAYS, DEFAULT_STARTER_LABEL } from "./config.js";
+import { DEFAULT_AUDIT_POLICY, type AuditPolicy } from "./policy.js";
 
 export type FailOn = "none" | "fail" | "warn";
 
@@ -7,6 +8,7 @@ export interface AuditCliOptions {
   label: string;
   staleDays: number;
   failOn: FailOn;
+  policy: AuditPolicy;
 }
 
 function optionValue(args: string[], index: number, option: string): string {
@@ -22,6 +24,7 @@ export function parseAuditOptions(args: string[]): AuditCliOptions {
   let label = DEFAULT_STARTER_LABEL;
   let staleDays = DEFAULT_STALE_DAYS;
   let failOn: FailOn = "none";
+  let policy: AuditPolicy = DEFAULT_AUDIT_POLICY;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -58,8 +61,18 @@ export function parseAuditOptions(args: string[]): AuditCliOptions {
       continue;
     }
 
+    if (arg === "--policy") {
+      const value = optionValue(args, index, arg);
+      if (value !== "balanced" && value !== "strict") {
+        throw new Error("--policy must be either 'balanced' or 'strict'");
+      }
+      policy = value;
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown option: ${arg}`);
   }
 
-  return { json, label, staleDays, failOn };
+  return { json, label, staleDays, failOn, policy };
 }
