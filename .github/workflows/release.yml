@@ -1,15 +1,23 @@
-name: Release v0.2.0
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Package version to release, for example 0.3.0.
+        required: true
+        type: string
       confirm:
-        description: Type v0.2.0 to publish the release.
+        description: Type the exact release tag, for example v0.3.0.
         required: true
         type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -19,16 +27,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Confirm release intent
         shell: bash
         env:
+          RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_CONFIRM: ${{ inputs.confirm }}
           DISPATCH_REF: ${{ github.ref }}
         run: |
+          set -euo pipefail
+
           test "$DISPATCH_REF" = "refs/heads/main"
-          test "$RELEASE_CONFIRM" = "v0.2.0"
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$RELEASE_CONFIRM" = "v$RELEASE_VERSION"
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -37,9 +50,17 @@ jobs:
 
       - name: Validate release metadata
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
+
           PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-          test "$PACKAGE_VERSION" = "0.2.0"
+          LOCK_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package-lock.json', 'utf8')).version")"
+
+          test "$PACKAGE_VERSION" = "$RELEASE_VERSION"
+          test "$LOCK_VERSION" = "$RELEASE_VERSION"
+          grep -Fq "## [$RELEASE_VERSION]" CHANGELOG.md
           test -f action.yml
 
       - run: npm ci
@@ -49,15 +70,22 @@ jobs:
 
       - name: Build release artifacts
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-          npm pack
-          sha256sum "starterqueue-${PACKAGE_VERSION}.tgz" > SHA256SUMS.txt
+          set -euo pipefail
 
-          awk '
-            /^## \[0\.2\.0\]/ { found=1 }
-            found && /^## \[/ && $0 !~ /^## \[0\.2\.0\]/ { exit }
+          npm pack
+          TARBALL="starterqueue-${RELEASE_VERSION}.tgz"
+          test -f "$TARBALL"
+          sha256sum "$TARBALL" > SHA256SUMS.txt
+
+          awk -v version="$RELEASE_VERSION" '
+            BEGIN { prefix = "## [" version "]" }
+            index($0, prefix) == 1 { found=1 }
+            found && /^## \[/ && index($0, prefix) != 1 { exit }
             found { print }
+            END { if (!found) exit 2 }
           ' CHANGELOG.md > RELEASE_NOTES.md
 
           test -s RELEASE_NOTES.md
@@ -65,13 +93,14 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
-          RELEASE_TAG="v0.2.0"
+          RELEASE_TAG="v$RELEASE_VERSION"
           RELEASE_SHA="$(git rev-parse HEAD)"
-          TARBALL="starterqueue-0.2.0.tgz"
+          TARBALL="starterqueue-${RELEASE_VERSION}.tgz"
           CHECKSUMS="SHA256SUMS.txt"
 
           resolve_remote_tag_commit() {
@@ -123,7 +152,7 @@ jobs:
 
             gh release create "$RELEASE_TAG" \
               --verify-tag \
-              --title "StarterQueue v0.2.0" \
+              --title "StarterQueue $RELEASE_TAG" \
               --notes-file RELEASE_NOTES.md \
               "$TARBALL#npm package tarball" \
               "$CHECKSUMS#SHA-256 checksums"
@@ -132,7 +161,7 @@ jobs:
 
           gh release create "$RELEASE_TAG" \
             --target "$RELEASE_SHA" \
-            --title "StarterQueue v0.2.0" \
+            --title "StarterQueue $RELEASE_TAG" \
             --notes-file RELEASE_NOTES.md \
             "$TARBALL#npm package tarball" \
             "$CHECKSUMS#SHA-256 checksums"
