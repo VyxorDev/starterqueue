@@ -36,4 +36,5 @@ jobs:
           repository: VyxorDev/starterqueue
           label: __starterqueue_action_smoke__
           policy: strict
+          rule-levels: SQ001=warn,SQ009=fail
           fail-on: none
