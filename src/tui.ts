@@ -50,6 +50,7 @@ class TerminalApp {
   private errorMessage = "";
   private spinnerIndex = 0;
   private spinner: ReturnType<typeof setInterval> | undefined;
+  private auditController: AbortController | undefined;
   private finished = false;
   private originalRaw = false;
   private resolveDone: (() => void) | undefined;
@@ -104,6 +105,7 @@ class TerminalApp {
     if (this.finished) return;
     this.finished = true;
     this.stopSpinner();
+    this.auditController?.abort();
     this.input.off("keypress", this.onKeypress);
     this.output.off("resize", this.onResize);
     process.off("SIGINT", this.onSignal);
@@ -116,11 +118,19 @@ class TerminalApp {
 
   private welcomeKey(text: string, key: Keypress): void {
     if (key.name === "up") {
-      this.inputFocused = false;
-      this.menuIndex = (this.menuIndex + 2) % 3;
+      if (this.inputFocused) {
+        this.inputFocused = false;
+        this.menuIndex = 2;
+      } else {
+        this.menuIndex = (this.menuIndex + 2) % 3;
+      }
     } else if (key.name === "down") {
-      this.inputFocused = false;
-      this.menuIndex = (this.menuIndex + 1) % 3;
+      if (this.inputFocused) {
+        this.inputFocused = false;
+        this.menuIndex = 0;
+      } else {
+        this.menuIndex = (this.menuIndex + 1) % 3;
+      }
     } else if (key.name === "tab") {
       this.inputFocused = !this.inputFocused;
       this.menuIndex = 0;
@@ -215,6 +225,7 @@ class TerminalApp {
       return;
     }
     this.repository = repo.owner + "/" + repo.name;
+    this.auditController = new AbortController();
     this.progress = "Fetching issues and closing PR links";
     this.screen = "auditing";
     this.spinnerIndex = 0;
@@ -226,8 +237,9 @@ class TerminalApp {
   }
 
   private async performAudit(repo: RepoRef): Promise<void> {
+    const controller = this.auditController;
     try {
-      const issues = await fetchStarterIssues(repo, { token: process.env.GH_TOKEN });
+      const issues = await fetchStarterIssues(repo, { token: process.env.GH_TOKEN, signal: controller?.signal });
       if (this.finished) return;
       this.progress = "Evaluating readiness rules";
       this.render();
@@ -236,7 +248,7 @@ class TerminalApp {
       this.search = "";
       this.searchFocused = false;
       this.selected = 0;
-      this.notice = "";
+      this.notice = process.env.GH_TOKEN ? "" : "GH_TOKEN not set: SQ004 closing-PR detection was skipped.";
       this.screen = "results";
     } catch (error) {
       if (this.finished) return;
@@ -244,6 +256,7 @@ class TerminalApp {
       this.screen = "error";
     } finally {
       this.stopSpinner();
+      if (this.auditController === controller) this.auditController = undefined;
       if (!this.finished) this.render();
     }
   }

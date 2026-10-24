@@ -36,6 +36,7 @@ export interface RepoRef {
 export interface FetchStarterIssuesOptions {
   label?: string;
   token?: string;
+  signal?: AbortSignal;
 }
 
 export interface GraphqlClosingPullRequestIssue {
@@ -121,6 +122,7 @@ function retryDelayMs(response: Response | undefined, attempt: number): number {
 
 async function requestWithRetry(url: string, init?: RequestInit): Promise<Response> {
   for (let attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt += 1) {
+    if (init?.signal?.aborted) throw new Error("GitHub request was cancelled.");
     try {
       const response = await fetch(url, init);
 
@@ -134,6 +136,7 @@ async function requestWithRetry(url: string, init?: RequestInit): Promise<Respon
 
       await sleep(retryDelayMs(response, attempt));
     } catch (error) {
+      if (init?.signal?.aborted) throw error;
       if (attempt === MAX_REQUEST_ATTEMPTS - 1) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
@@ -148,8 +151,8 @@ async function requestWithRetry(url: string, init?: RequestInit): Promise<Respon
   throw new Error("GitHub request failed after exhausting retry attempts.");
 }
 
-async function fetchJson<T>(url: string, token?: string): Promise<T> {
-  const response = await requestWithRetry(url, { headers: githubHeaders(token) });
+async function fetchJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
+  const response = await requestWithRetry(url, { headers: githubHeaders(token), signal });
 
   if (!response.ok) {
     const hint = response.status === 403
@@ -165,9 +168,11 @@ async function fetchGraphql<T>(
   query: string,
   variables: Record<string, unknown>,
   token: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await requestWithRetry("https://api.github.com/graphql", {
     method: "POST",
+    signal,
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,
@@ -217,6 +222,7 @@ export function extractGraphqlClosingPullRequests(
 async function fetchClosingPullRequestsGraphql(
   issues: StarterIssue[],
   token: string,
+  signal?: AbortSignal,
 ): Promise<Map<number, LinkedPullRequest[]>> {
   const withNodeIds = issues.filter(
     (issue): issue is StarterIssue & { node_id: string } => typeof issue.node_id === "string" && issue.node_id.length > 0,
@@ -235,6 +241,7 @@ async function fetchClosingPullRequestsGraphql(
       GRAPHQL_CLOSING_PULL_REQUEST_QUERY,
       { ids: batch.map((issue) => issue.node_id) },
       token,
+      signal,
     );
 
     const returnedIssues = new Set<number>();
@@ -277,6 +284,7 @@ export async function fetchStarterIssues(
     const pageItems = await fetchJson<StarterIssue[]>(
       `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues?${params}`,
       token,
+      options.signal,
     );
 
     issues.push(...pageItems.filter((issue) => !issue.pull_request));
@@ -284,7 +292,7 @@ export async function fetchStarterIssues(
   }
 
   const closingPullRequests = token && issues.length > 0
-    ? await fetchClosingPullRequestsGraphql(issues, token)
+    ? await fetchClosingPullRequestsGraphql(issues, token, options.signal)
     : new Map<number, LinkedPullRequest[]>();
 
   return issues.map((issue) => ({

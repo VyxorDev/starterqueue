@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   nextIssueFilter,
@@ -63,7 +64,7 @@ test("only normal GitHub issue URLs can launch a browser", () => {
 
 test("non-TTY CLI still provides usage instead of launching the TUI", () => {
   const cli = new URL("../src/cli.js", import.meta.url);
-  const result = spawnSync(process.execPath, [cli.pathname], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [fileURLToPath(cli)], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Usage:/);
   assert.match(result.stderr, /requires a terminal/i);
