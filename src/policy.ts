@@ -11,8 +11,21 @@ export type AuditRuleCode =
   | "SQ007"
   | "SQ008"
   | "SQ009";
+export type RuleLevelOverrides = Partial<Record<AuditRuleCode, FindingLevel>>;
 
 export const DEFAULT_AUDIT_POLICY: AuditPolicy = "balanced";
+
+export const AUDIT_RULE_CODES: readonly AuditRuleCode[] = [
+  "SQ001",
+  "SQ002",
+  "SQ003",
+  "SQ004",
+  "SQ005",
+  "SQ006",
+  "SQ007",
+  "SQ008",
+  "SQ009",
+];
 
 const BALANCED_LEVELS: Record<AuditRuleCode, FindingLevel> = {
   SQ001: "warn",
@@ -32,6 +45,14 @@ const STRICT_LEVELS: Record<AuditRuleCode, FindingLevel> = {
   SQ006: "fail",
 };
 
-export function findingLevel(code: AuditRuleCode, policy: AuditPolicy): FindingLevel {
-  return policy === "strict" ? STRICT_LEVELS[code] : BALANCED_LEVELS[code];
+export function isAuditRuleCode(value: string): value is AuditRuleCode {
+  return AUDIT_RULE_CODES.includes(value as AuditRuleCode);
+}
+
+export function findingLevel(
+  code: AuditRuleCode,
+  policy: AuditPolicy,
+  overrides: RuleLevelOverrides = {},
+): FindingLevel {
+  return overrides[code] ?? (policy === "strict" ? STRICT_LEVELS[code] : BALANCED_LEVELS[code]);
 }

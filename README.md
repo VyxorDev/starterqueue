@@ -30,18 +30,20 @@ StarterQueue checks for **objective queue-rot signals** such as:
 - a locked issue conversation;
 - a closed or overdue milestone.
 
-The goal is deliberately narrow: **detect verifiable GitHub state without pretending every signal means the issue is definitely unusable or “too hard.”** StarterQueue separates detection from severity through audit policies.
+The goal is deliberately narrow: **detect verifiable GitHub state without pretending every signal means the issue is definitely unusable or “too hard.”** StarterQueue separates detection from severity through audit policies and optional per-rule severity overrides.
 
 ---
 
 ## Audit policies
 
-StarterQueue has two severity policies:
+StarterQueue has two built-in severity policies:
 
 - **`balanced`** — the default. Strong contradictions fail, while assignment and issue dependencies warn because repository policies differ.
 - **`strict`** — preserves the v0.2.x treatment where assignment and issue dependencies also fail.
 
 The detected facts do not change between policies. Only their severity changes.
+
+Starting with v0.4.0, a repository can also override individual rule severities. The selected policy establishes the baseline, and an explicit per-rule override wins for that rule. For example, a project can keep `balanced` but make overdue milestones (`SQ009`) fail, or use `strict` while softening assignment (`SQ001`) back to a warning.
 
 ## Audit rules
 
@@ -83,7 +85,7 @@ Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; exp
 
 ### GitHub Action
 
-For the v0.3.0 release, the normal way to run StarterQueue in CI is a single Action step:
+For v0.4.0, the normal way to run StarterQueue in CI is a single Action step:
 
 ```yaml
 permissions:
@@ -93,7 +95,7 @@ permissions:
 
 steps:
   - name: Audit starter queue
-    uses: VyxorDev/starterqueue@v0.3.0
+    uses: VyxorDev/starterqueue@v0.4.0
 ```
 
 The Action audits the current workflow repository by default, uses the workflow token automatically for that same-repository audit, and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
@@ -110,7 +112,8 @@ For production workflows, prefer a reviewed release tag or immutable commit SHA 
 | `token` | automatic workflow token for same-repository audits | Explicit GitHub token for cross-repository authenticated requests and `SQ004` |
 | `label` | `good first issue` | Starter issue label to audit |
 | `stale-days` | `90` | Days without activity before `SQ003` warns |
-| `policy` | `balanced` | Severity policy: `balanced` or `strict` |
+| `policy` | `balanced` | Baseline severity policy: `balanced` or `strict` |
+| `rule-levels` | empty | Comma-separated per-rule overrides, e.g. `SQ001=fail,SQ009=fail` |
 | `fail-on` | `fail` | Failure threshold: `none`, `fail`, or `warn` |
 | `json` | `false` | Print versioned JSON instead of human-readable text |
 
@@ -148,6 +151,13 @@ To restore the stricter v0.2.x severity behavior:
 node dist/src/cli.js audit owner/repo --policy strict
 ```
 
+To override one rule without inventing a whole new policy:
+
+```bash
+node dist/src/cli.js audit owner/repo --policy balanced --rule-level SQ009=fail
+node dist/src/cli.js audit owner/repo --policy strict --rule-level SQ001=warn
+```
+
 > [!TIP]
 > Set `GH_TOKEN` for the complete CLI audit. Authenticated runs batch GitHub's structured closing-PR relationship through GraphQL. If GitHub returns incomplete closing-PR data, StarterQueue exits with a tool error instead of silently producing a false-clean audit. Without a token, all other rules still run, but `SQ004` is skipped.
 
@@ -162,6 +172,7 @@ StarterQueue defaults to:
 | Starter label | `good first issue` | `good first issue` |
 | Inactivity threshold | `90` days | `90` days |
 | Audit policy | `balanced` | `balanced` |
+| Per-rule overrides | none | none |
 | CI failure threshold | disabled | `fail` |
 
 Override values from the CLI:
@@ -170,21 +181,26 @@ Override values from the CLI:
 node dist/src/cli.js audit owner/repo --label "starter task"
 node dist/src/cli.js audit owner/repo --stale-days 45
 node dist/src/cli.js audit owner/repo --policy strict
+node dist/src/cli.js audit owner/repo --rule-level SQ009=fail
+node dist/src/cli.js audit owner/repo --rule-level SQ001=fail --rule-level SQ009=fail
 node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45 --policy strict
 ```
 
-`--stale-days` must be a positive integer. `--policy` must be `balanced` or `strict`.
+`--stale-days` must be a positive integer. `--policy` must be `balanced` or `strict`. `--rule-level` is repeatable and must use an existing rule code (`SQ001`–`SQ009`) with `warn` or `fail`. Rule codes are case-insensitive. If the same rule is overridden more than once, the last value wins.
 
-For the Action, pass the corresponding `with:` inputs:
+For the Action, pass the corresponding `with:` inputs. Multiple rule overrides use a comma-separated `rule-levels` value:
 
 ```yaml
-- uses: VyxorDev/starterqueue@v0.3.0
+- uses: VyxorDev/starterqueue@v0.4.0
   with:
     label: starter task
     stale-days: '45'
-    policy: strict
+    policy: balanced
+    rule-levels: SQ001=fail,SQ009=fail
     fail-on: warn
 ```
+
+Per-rule settings change **severity only**. They do not disable a rule, alter the GitHub facts StarterQueue detects, or turn a non-finding into a finding.
 
 ---
 
@@ -203,7 +219,7 @@ node dist/src/cli.js audit owner/repo --fail-on warn
 node dist/src/cli.js audit owner/repo --fail-on none
 ```
 
-The GitHub Action defaults to `policy: balanced` and `fail-on: fail`. That means an issue that is only assigned (`SQ001`) or only dependency-blocked (`SQ006`) is reported as a warning without failing the job. Set `policy: strict` to make those signals failures as they were in v0.2.x.
+The GitHub Action defaults to `policy: balanced` and `fail-on: fail`. That means an issue that is only assigned (`SQ001`) or only dependency-blocked (`SQ006`) is reported as a warning without failing the job. Set `policy: strict` to make those signals failures as they were in v0.2.x, or use per-rule overrides when only selected rules need different severity.
 
 ### Exit codes
 
@@ -229,6 +245,9 @@ Keeping tool failures separate from audit failures makes CI logs and automation 
     "label": "good first issue",
     "stale_days": 90,
     "policy": "balanced",
+    "rule_levels": {
+      "SQ009": "fail"
+    },
     "fail_on": "none"
   },
   "summary": {
@@ -240,6 +259,8 @@ Keeping tool failures separate from audit failures makes CI logs and automation 
   "results": []
 }
 ```
+
+`configuration.rule_levels` contains only explicit overrides. An empty object means all severities come directly from the selected policy.
 
 Breaking changes to the machine-readable top-level contract require a `schema_version` bump. New additive fields may be introduced within the same schema version when they do not invalidate existing consumers.
 
@@ -291,7 +312,7 @@ StarterQueue intentionally stays small and boring in the best way:
 
 - **Read-only** — it audits; it does not relabel or modify repository issues.
 - **Objective first** — rules are based on verifiable GitHub state, not subjective “difficulty” scoring.
-- **Detection before judgment** — facts are detected consistently, while policies control how ambiguous signals are ranked.
+- **Detection before judgment** — facts are detected consistently, while policies and explicit overrides control how signals are ranked.
 - **Low API overhead** — reuse or batch GitHub responses whenever correctness allows it.
 - **Explainable output** — every failure or warning has a stable `SQ###` rule code.
 - **Automation-friendly** — human text, versioned JSON, distinct CI exit codes, and a reusable GitHub Action serve different consumers cleanly.
@@ -305,8 +326,8 @@ StarterQueue is intentionally focused on whether a starter issue shows evidence 
 
 Future work may cover:
 
-- repository-specific rule severity overrides beyond the built-in balanced/strict policies;
 - additional objective forms of starter-queue rot when real-world false passes justify them;
+- smarter interpretation of strong signals such as whether a closing pull request is active or abandoned, when GitHub exposes enough objective evidence to do so safely;
 - a prebuilt Action runtime if real usage shows startup time matters.
 
 New rules should stay narrow, testable, and evidence-based.

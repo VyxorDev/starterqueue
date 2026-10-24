@@ -9,6 +9,7 @@ test("audit options use StarterQueue defaults", () => {
     staleDays: 90,
     failOn: "none",
     policy: "balanced",
+    ruleLevels: {},
   });
 });
 
@@ -31,8 +32,43 @@ test("audit options accept custom label, stale threshold, policy, and CI thresho
       staleDays: 45,
       failOn: "warn",
       policy: "strict",
+      ruleLevels: {},
     },
   );
+});
+
+test("audit options accept repeatable per-rule severity overrides", () => {
+  const options = parseAuditOptions([
+    "--rule-level",
+    "SQ001=fail",
+    "--rule-level",
+    "sq009=fail",
+  ]);
+
+  assert.deepEqual(options.ruleLevels, {
+    SQ001: "fail",
+    SQ009: "fail",
+  });
+});
+
+test("later per-rule severity overrides win", () => {
+  const options = parseAuditOptions([
+    "--rule-level",
+    "SQ001=fail",
+    "--rule-level",
+    "SQ001=warn",
+  ]);
+
+  assert.deepEqual(options.ruleLevels, { SQ001: "warn" });
+});
+
+test("audit options reject invalid per-rule severity overrides", () => {
+  for (const value of ["SQ010=warn", "SQ001=pass", "SQ001", "SQ001=warn=extra"]) {
+    assert.throws(
+      () => parseAuditOptions(["--rule-level", value]),
+      /SQ001=warn or SQ001=fail/,
+    );
+  }
 });
 
 test("audit options accept an explicit disabled CI threshold", () => {

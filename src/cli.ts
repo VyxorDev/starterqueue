@@ -12,13 +12,14 @@ function usage(): string {
     "StarterQueue",
     "",
     "Usage:",
-    "  starterqueue audit <owner/repo> [--json] [--label <name>] [--stale-days <days>] [--policy <balanced|strict>] [--fail-on <none|fail|warn>]",
+    "  starterqueue audit <owner/repo> [--json] [--label <name>] [--stale-days <days>] [--policy <balanced|strict>] [--rule-level <SQ###=warn|fail>] [--fail-on <none|fail|warn>]",
     "",
     "Options:",
     "  --json                       Print machine-readable JSON output",
     "  --label <name>               Starter issue label to audit (default: good first issue)",
     "  --stale-days <days>          Days without activity before SQ003 warns (default: 90)",
     "  --policy <balanced|strict>   Severity policy (default: balanced). Strict makes SQ001 and SQ006 fail",
+    "  --rule-level <rule=level>    Override one rule severity, e.g. SQ001=fail. Repeatable; last value wins",
     "  --fail-on <none|fail|warn>   Exit 2 when findings meet the selected severity threshold; none disables gating",
     "",
     "Exit codes:",
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
   const results = auditIssues(issues, new Date(), {
     staleDays: options.staleDays,
     policy: options.policy,
+    ruleLevels: options.ruleLevels,
   });
 
   if (options.json) {
