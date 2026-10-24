@@ -78,7 +78,7 @@ test("long findings wrap without hiding their closing PR links", () => {
   const message = "Open pull request https://github.com/rust-lang/rust-clippy/pull/15992 is linked to close this issue";
   const lines = wrapTerminalText(message, 34);
   assert.ok(lines.length > 1);
-  assert.equal(lines.join(" ").replace(/\\s+/g, ""), message.replace(/\\s+/g, ""));
+  assert.equal(lines.join(" ").replace(/\s+/g, ""), message.replace(/\s+/g, ""));
   assert.ok(lines.every((line) => Array.from(line).length <= 34));
   assert.deepEqual(wrapTerminalText("   ", 20), [""]);
   assert.deepEqual(wrapTerminalText("hello", 0), []);
