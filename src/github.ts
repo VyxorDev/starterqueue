@@ -2,6 +2,11 @@ import { DEFAULT_STARTER_LABEL } from "./config.js";
 import type { LinkedPullRequest, StarterIssue } from "./types.js";
 
 const GRAPHQL_BATCH_SIZE = 25;
+const MAX_REQUEST_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 250;
+const RETRY_MAX_DELAY_MS = 2_000;
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
 const GRAPHQL_CLOSING_PULL_REQUEST_QUERY = `
   query StarterQueueClosingPullRequests($ids: [ID!]!) {
     nodes(ids: $ids) {
@@ -85,8 +90,66 @@ function githubHeaders(token?: string): Record<string, string> {
   };
 }
 
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRetryableResponse(response: Response): boolean {
+  if (RETRYABLE_STATUS_CODES.has(response.status)) return true;
+
+  // GitHub can report secondary rate limiting as 403 with Retry-After.
+  return response.status === 403 && response.headers.has("Retry-After");
+}
+
+function retryDelayMs(response: Response | undefined, attempt: number): number {
+  const retryAfter = response?.headers.get("Retry-After");
+
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1_000, RETRY_MAX_DELAY_MS);
+    }
+
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(Math.max(0, retryAt - Date.now()), RETRY_MAX_DELAY_MS);
+    }
+  }
+
+  return Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
+}
+
+async function requestWithRetry(url: string, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+
+      if (
+        response.ok
+        || !isRetryableResponse(response)
+        || attempt === MAX_REQUEST_ATTEMPTS - 1
+      ) {
+        return response;
+      }
+
+      await sleep(retryDelayMs(response, attempt));
+    } catch (error) {
+      if (attempt === MAX_REQUEST_ATTEMPTS - 1) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `GitHub request failed after ${MAX_REQUEST_ATTEMPTS} attempts: ${message}`,
+        );
+      }
+
+      await sleep(retryDelayMs(undefined, attempt));
+    }
+  }
+
+  throw new Error("GitHub request failed after exhausting retry attempts.");
+}
+
 async function fetchJson<T>(url: string, token?: string): Promise<T> {
-  const response = await fetch(url, { headers: githubHeaders(token) });
+  const response = await requestWithRetry(url, { headers: githubHeaders(token) });
 
   if (!response.ok) {
     const hint = response.status === 403
@@ -103,7 +166,7 @@ async function fetchGraphql<T>(
   variables: Record<string, unknown>,
   token: string,
 ): Promise<T> {
-  const response = await fetch("https://api.github.com/graphql", {
+  const response = await requestWithRetry("https://api.github.com/graphql", {
     method: "POST",
     headers: {
       Accept: "application/vnd.github+json",
@@ -203,7 +266,7 @@ export async function fetchStarterIssues(
   const label = options.label ?? DEFAULT_STARTER_LABEL;
   const token = options.token ?? process.env.GH_TOKEN;
 
-  for (let page = 1; page <= 10; page += 1) {
+  for (let page = 1; ; page += 1) {
     const params = new URLSearchParams({
       state: "open",
       labels: label,

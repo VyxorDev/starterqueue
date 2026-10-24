@@ -12,6 +12,7 @@ StarterQueue v0.3.0 separates factual detection from severity judgment so ambigu
 - `balanced` is now the default policy.
 - `strict` preserves the previous hard-fail treatment for assignment and issue dependencies.
 - JSON output now records the selected policy in `configuration.policy` while retaining `schema_version: 1`.
+- GitHub REST and GraphQL requests now retry transient network failures, HTTP `429`, and common `5xx` responses up to three attempts with bounded backoff.
 
 ### Changed
 
@@ -19,10 +20,14 @@ StarterQueue v0.3.0 separates factual detection from severity judgment so ambigu
 - Under the default `balanced` policy, `SQ006` (blocked by another GitHub issue dependency) is a warning instead of a failure.
 - Strong contradiction signals keep their existing severities: `SQ002`, `SQ004`, `SQ005`, `SQ007`, and `SQ008` remain failures; `SQ003` and `SQ009` remain warnings.
 - GitHub Action users who need the previous gating behavior can set `policy: strict`.
+- Starter-issue REST pagination now continues until GitHub returns the final page instead of stopping after ten pages, removing the previous silent 1,000-response ceiling.
+- Permanent client errors still fail immediately, and authenticated incomplete GraphQL closing-PR data still fails closed rather than producing a partial audit.
 
 ### Why
 
 Real-world validation across public starter queues showed that assignment and issue dependencies are useful facts, but their meaning depends on repository policy. A contributor may still be allowed to work on an assigned issue, and some dependency-linked work can begin in parallel. StarterQueue now reports those facts without treating them as universally unusable starter issues.
+
+Large or temporarily unstable GitHub queues should also be audited completely and predictably, so v0.3.0 removes the fixed REST page limit and adds bounded retries for transient API failures.
 
 ### Compatibility
 
