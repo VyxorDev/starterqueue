@@ -31,6 +31,7 @@ export function createJsonOutput(
       label: options.label,
       stale_days: options.staleDays,
       policy: options.policy,
+      rule_levels: options.ruleLevels,
       fail_on: options.failOn,
     },
     summary: summarizeAudit(results),
