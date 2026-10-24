@@ -4,7 +4,7 @@
 
 ### Keep your `good first issue` queue honest.
 
-StarterQueue is a small, read-only CLI and GitHub Action that audits starter issues and flags tickets that are no longer genuinely ready for a newcomer.
+StarterQueue is a small, read-only CLI and GitHub Action that audits starter issues and flags verifiable signals that a ticket may no longer be ready for a newcomer.
 
 [![CI](https://github.com/VyxorDev/starterqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/VyxorDev/starterqueue/actions/workflows/ci.yml)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -19,7 +19,7 @@ StarterQueue is a small, read-only CLI and GitHub Action that audits starter iss
 
 A `good first issue` label can stay attached long after an issue stops being a good first issue.
 
-StarterQueue checks for **objective queue rot** such as:
+StarterQueue checks for **objective queue-rot signals** such as:
 
 - an issue already being assigned;
 - a blocker or waiting label;
@@ -30,25 +30,37 @@ StarterQueue checks for **objective queue rot** such as:
 - a locked issue conversation;
 - a closed or overdue milestone.
 
-The goal is deliberately narrow: **catch obvious readiness problems without pretending to judge whether an issue is “easy.”**
+The goal is deliberately narrow: **detect verifiable GitHub state without pretending every signal means the issue is definitely unusable or “too hard.”** StarterQueue separates detection from severity through audit policies.
 
 ---
 
+## Audit policies
+
+StarterQueue has two severity policies:
+
+- **`balanced`** — the default. Strong contradictions fail, while assignment and issue dependencies warn because repository policies differ.
+- **`strict`** — preserves the v0.2.x treatment where assignment and issue dependencies also fail.
+
+The detected facts do not change between policies. Only their severity changes.
+
 ## Audit rules
 
-| Rule | What StarterQueue detects | Result |
-| :--- | :--- | :---: |
-| `SQ001` | Issue already has an assignee | ❌ Fail |
-| `SQ002` | Issue has a blocked/waiting label | ❌ Fail |
-| `SQ003` | No activity for the configured threshold — 90 days by default | ⚠️ Warning |
-| `SQ004` | An open pull request is registered by GitHub as closing the issue | ❌ Fail |
-| `SQ005` | Issue text explicitly says it is not ready for contribution(s) | ❌ Fail |
-| `SQ006` | GitHub reports one or more open issue dependencies blocking it | ❌ Fail |
-| `SQ007` | Issue conversation is locked | ❌ Fail |
-| `SQ008` | Issue belongs to a closed milestone | ❌ Fail |
-| `SQ009` | An open milestone is past its due date | ⚠️ Warning |
+| Rule | What StarterQueue detects | Balanced | Strict |
+| :--- | :--- | :---: | :---: |
+| `SQ001` | Issue already has an assignee | ⚠️ Warning | ❌ Fail |
+| `SQ002` | Issue has a blocked/waiting label | ❌ Fail | ❌ Fail |
+| `SQ003` | No activity for the configured threshold — 90 days by default | ⚠️ Warning | ⚠️ Warning |
+| `SQ004` | An open pull request is registered by GitHub as closing the issue | ❌ Fail | ❌ Fail |
+| `SQ005` | Issue text explicitly says it is not ready for contribution(s) | ❌ Fail | ❌ Fail |
+| `SQ006` | GitHub reports one or more open issue dependencies blocking it | ⚠️ Warning | ❌ Fail |
+| `SQ007` | Issue conversation is locked | ❌ Fail | ❌ Fail |
+| `SQ008` | Issue belongs to a closed milestone | ❌ Fail | ❌ Fail |
+| `SQ009` | An open milestone is past its due date | ⚠️ Warning | ⚠️ Warning |
 
 ### Rule notes
+
+**`SQ001` — already assigned**  
+Assignment is objective, but repositories differ on what it means. In `balanced` mode StarterQueue warns rather than assuming the issue is unavailable. Use `strict` if your repository treats assignment as exclusive ownership.
 
 **`SQ004` — open closing pull request**  
 Uses GitHub GraphQL's structured `closedByPullRequestsReferences` relation. A normal mention such as `Part of #123`, `Follows #123`, or a PR that explicitly leaves work for the issue does **not** count. This avoids treating incidental cross-references as proof that the issue is already being solved. `SQ004` requires `GH_TOKEN`; tokenless runs skip this rule and print a notice to stderr.
@@ -57,10 +69,10 @@ Uses GitHub GraphQL's structured `closedByPullRequestsReferences` relation. A no
 Intentionally narrow. It only catches explicit wording such as `not ready for contribution` or `not ready for contributions`. StarterQueue does not perform subjective language scoring or infer readiness from arbitrary prose.
 
 **`SQ006` — GitHub issue dependencies**  
-Uses GitHub's structured issue dependency summary. If GitHub reports that an issue is currently blocked by one or more other issues, StarterQueue fails it without parsing `Blocked by ...` text or making an additional API request.
+Uses GitHub's structured issue dependency summary. A dependency is a useful readiness signal, but some repositories allow parallel work before the dependency is resolved. It warns in `balanced` mode and fails in `strict` mode.
 
 **`SQ007` — locked conversations**  
-Uses the issue's existing `locked` field. A locked starter issue is treated as unavailable because a newcomer cannot use the normal issue conversation to ask questions or coordinate work.
+Uses the issue's existing `locked` field. A locked starter issue fails because a newcomer cannot use the normal issue conversation to ask questions or coordinate work.
 
 **`SQ008` and `SQ009` — milestone state**  
 Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; explicitly open milestones whose due date has passed warn with `SQ009`. Closed milestones do not also receive the overdue warning.
@@ -71,7 +83,7 @@ Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; exp
 
 ### GitHub Action
 
-Starting with the `v0.2.0` release, the normal way to run StarterQueue in CI is a single Action step:
+For the v0.3.0 release, the normal way to run StarterQueue in CI is a single Action step:
 
 ```yaml
 permissions:
@@ -81,12 +93,12 @@ permissions:
 
 steps:
   - name: Audit starter queue
-    uses: VyxorDev/starterqueue@v0.2.0
-    with:
-      token: ${{ github.token }}
+    uses: VyxorDev/starterqueue@v0.3.0
 ```
 
-The Action audits the current workflow repository by default and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
+The Action audits the current workflow repository by default, uses the workflow token automatically for that same-repository audit, and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
+
+For cross-repository audits, pass an explicit `token` when authenticated checks such as `SQ004` are required.
 
 For production workflows, prefer a reviewed release tag or immutable commit SHA instead of a floating branch.
 
@@ -95,9 +107,10 @@ For production workflows, prefer a reviewed release tag or immutable commit SHA 
 | Input | Default | Description |
 | :--- | :--- | :--- |
 | `repository` | current workflow repository | Repository to audit in `owner/repo` form |
-| `token` | none | GitHub token for authenticated requests and `SQ004`; `${{ github.token }}` is recommended |
+| `token` | automatic workflow token for same-repository audits | Explicit GitHub token for cross-repository authenticated requests and `SQ004` |
 | `label` | `good first issue` | Starter issue label to audit |
 | `stale-days` | `90` | Days without activity before `SQ003` warns |
+| `policy` | `balanced` | Severity policy: `balanced` or `strict` |
 | `fail-on` | `fail` | Failure threshold: `none`, `fail`, or `warn` |
 | `json` | `false` | Print versioned JSON instead of human-readable text |
 
@@ -129,8 +142,14 @@ For JSON output:
 node dist/src/cli.js audit owner/repo --json
 ```
 
+To restore the stricter v0.2.x severity behavior:
+
+```bash
+node dist/src/cli.js audit owner/repo --policy strict
+```
+
 > [!TIP]
-> Set `GH_TOKEN` for the complete audit. Authenticated runs batch GitHub's structured closing-PR relationship through GraphQL. If GitHub returns incomplete closing-PR data, StarterQueue exits with a tool error instead of silently producing a false-clean audit. Without a token, all other rules still run, but `SQ004` is skipped.
+> Set `GH_TOKEN` for the complete CLI audit. Authenticated runs batch GitHub's structured closing-PR relationship through GraphQL. If GitHub returns incomplete closing-PR data, StarterQueue exits with a tool error instead of silently producing a false-clean audit. Without a token, all other rules still run, but `SQ004` is skipped.
 
 ---
 
@@ -142,6 +161,7 @@ StarterQueue defaults to:
 | :--- | :--- | :--- |
 | Starter label | `good first issue` | `good first issue` |
 | Inactivity threshold | `90` days | `90` days |
+| Audit policy | `balanced` | `balanced` |
 | CI failure threshold | disabled | `fail` |
 
 Override values from the CLI:
@@ -149,19 +169,20 @@ Override values from the CLI:
 ```bash
 node dist/src/cli.js audit owner/repo --label "starter task"
 node dist/src/cli.js audit owner/repo --stale-days 45
-node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45
+node dist/src/cli.js audit owner/repo --policy strict
+node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45 --policy strict
 ```
 
-`--stale-days` must be a positive integer.
+`--stale-days` must be a positive integer. `--policy` must be `balanced` or `strict`.
 
 For the Action, pass the corresponding `with:` inputs:
 
 ```yaml
-- uses: VyxorDev/starterqueue@v0.2.0
+- uses: VyxorDev/starterqueue@v0.3.0
   with:
-    token: ${{ github.token }}
     label: starter task
     stale-days: '45'
+    policy: strict
     fail-on: warn
 ```
 
@@ -177,9 +198,12 @@ node dist/src/cli.js audit owner/repo --fail-on fail
 
 # Exit 2 when at least one WARN or FAIL finding exists.
 node dist/src/cli.js audit owner/repo --fail-on warn
+
+# Explicitly disable gating.
+node dist/src/cli.js audit owner/repo --fail-on none
 ```
 
-The GitHub Action defaults `fail-on` to `fail`, because CI gating is its primary use case. Set `fail-on: none` when you only want a report.
+The GitHub Action defaults to `policy: balanced` and `fail-on: fail`. That means an issue that is only assigned (`SQ001`) or only dependency-blocked (`SQ006`) is reported as a warning without failing the job. Set `policy: strict` to make those signals failures as they were in v0.2.x.
 
 ### Exit codes
 
@@ -204,6 +228,7 @@ Keeping tool failures separate from audit failures makes CI logs and automation 
   "configuration": {
     "label": "good first issue",
     "stale_days": 90,
+    "policy": "balanced",
     "fail_on": "none"
   },
   "summary": {
@@ -222,22 +247,24 @@ Breaking changes to the machine-readable top-level contract require a `schema_ve
 
 ## Example output
 
+With the default `balanced` policy:
+
 ```text
 StarterQueue — Repository Audit
 
 PASS  #412  Fix authentication typo
-FAIL  #397  Update installation guide
+WARN  #397  Update installation guide
       SQ001: Issue is already assigned
 FAIL  #355  Improve cache handling
-      SQ004: Open pull request https://github.com/example/project/pull/421 is registered by GitHub as closing this issue
-FAIL  #330  Add usage statistics administration UI
+      SQ004: Open pull request https://github.com/example/project/pull/421 is linked to close this issue
+WARN  #330  Add usage statistics administration UI
       SQ006: Issue is blocked by 1 open GitHub issue dependency
 WARN  #275  Refresh CSS documentation
       SQ009: Milestone "v0.4" is past due (due 2026-10-01)
 WARN  #301  Add example for foo()
       SQ003: No activity for 94 days
 
-Queue health: 1/6 clean · 2 warning · 3 failing
+Queue health: 1/6 clean · 4 warning · 1 failing
 ```
 
 ---
@@ -263,6 +290,7 @@ StarterQueue intentionally stays small and boring in the best way:
 
 - **Read-only** — it audits; it does not relabel or modify repository issues.
 - **Objective first** — rules are based on verifiable GitHub state, not subjective “difficulty” scoring.
+- **Detection before judgment** — facts are detected consistently, while policies control how ambiguous signals are ranked.
 - **Low API overhead** — reuse or batch GitHub responses whenever correctness allows it.
 - **Explainable output** — every failure or warning has a stable `SQ###` rule code.
 - **Automation-friendly** — human text, versioned JSON, distinct CI exit codes, and a reusable GitHub Action serve different consumers cleanly.
@@ -272,11 +300,11 @@ StarterQueue intentionally stays small and boring in the best way:
 
 ## Scope
 
-StarterQueue is intentionally focused on whether a starter issue is **actually available and ready to be picked up**.
+StarterQueue is intentionally focused on whether a starter issue shows evidence that it may not be **available and ready to be picked up**.
 
 Future work may cover:
 
-- repository-specific queue policies;
+- repository-specific rule severity overrides beyond the built-in balanced/strict policies;
 - additional objective forms of starter-queue rot when real-world false passes justify them;
 - a prebuilt Action runtime if real usage shows startup time matters.
 

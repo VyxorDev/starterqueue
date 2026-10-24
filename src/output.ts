@@ -30,6 +30,7 @@ export function createJsonOutput(
     configuration: {
       label: options.label,
       stale_days: options.staleDays,
+      policy: options.policy,
       fail_on: options.failOn,
     },
     summary: summarizeAudit(results),

@@ -17,6 +17,10 @@ inputs:
     description: Days without activity before SQ003 warns.
     required: false
     default: '90'
+  policy:
+    description: Severity policy. Use balanced or strict.
+    required: false
+    default: balanced
   fail-on:
     description: Severity threshold that makes the action fail. Use none, fail, or warn.
     required: false
@@ -53,6 +57,7 @@ runs:
         STARTERQUEUE_GITHUB_TOKEN: ${{ github.token }}
         STARTERQUEUE_LABEL: ${{ inputs.label }}
         STARTERQUEUE_STALE_DAYS: ${{ inputs.stale-days }}
+        STARTERQUEUE_POLICY: ${{ inputs.policy }}
         STARTERQUEUE_FAIL_ON: ${{ inputs.fail-on }}
         STARTERQUEUE_JSON: ${{ inputs.json }}
       run: |
@@ -67,6 +72,14 @@ runs:
         fi
 
         args=(audit "$repository" --label "$STARTERQUEUE_LABEL" --stale-days "$STARTERQUEUE_STALE_DAYS")
+
+        case "$STARTERQUEUE_POLICY" in
+          balanced|strict) args+=(--policy "$STARTERQUEUE_POLICY") ;;
+          *)
+            echo "::error::policy must be either balanced or strict"
+            exit 1
+            ;;
+        esac
 
         case "$STARTERQUEUE_FAIL_ON" in
           none|"") ;;

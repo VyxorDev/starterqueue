@@ -35,4 +35,5 @@ jobs:
         with:
           repository: VyxorDev/starterqueue
           label: __starterqueue_action_smoke__
+          policy: strict
           fail-on: none

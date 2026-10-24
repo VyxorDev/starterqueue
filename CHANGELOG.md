@@ -2,6 +2,35 @@
 
 All notable changes to StarterQueue are documented here.
 
+## [0.3.0] - 2026-10-24
+
+StarterQueue v0.3.0 separates factual detection from severity judgment so ambiguous readiness signals do not automatically count as hard failures.
+
+### Added
+
+- New audit policies exposed through `--policy balanced|strict` in the CLI and the `policy` GitHub Action input.
+- `balanced` is now the default policy.
+- `strict` preserves the previous hard-fail treatment for assignment and issue dependencies.
+- JSON output now records the selected policy in `configuration.policy` while retaining `schema_version: 1`.
+
+### Changed
+
+- Under the default `balanced` policy, `SQ001` (already assigned) is a warning instead of a failure.
+- Under the default `balanced` policy, `SQ006` (blocked by another GitHub issue dependency) is a warning instead of a failure.
+- Strong contradiction signals keep their existing severities: `SQ002`, `SQ004`, `SQ005`, `SQ007`, and `SQ008` remain failures; `SQ003` and `SQ009` remain warnings.
+- GitHub Action users who need the previous gating behavior can set `policy: strict`.
+
+### Why
+
+Real-world validation across public starter queues showed that assignment and issue dependencies are useful facts, but their meaning depends on repository policy. A contributor may still be allowed to work on an assigned issue, and some dependency-linked work can begin in parallel. StarterQueue now reports those facts without treating them as universally unusable starter issues.
+
+### Compatibility
+
+- Detection rules `SQ001`–`SQ009` are unchanged; only policy-driven severity resolution changes.
+- `strict` mode restores the v0.2.x severity behavior for `SQ001` and `SQ006`.
+- Exit codes and `--fail-on` semantics are unchanged.
+- StarterQueue remains read-only.
+
 ## [0.2.1] - 2026-10-24
 
 StarterQueue v0.2.1 fixes two correctness gaps found during real-world validation without changing any audit rule semantics.
