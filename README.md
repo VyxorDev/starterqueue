@@ -11,6 +11,8 @@ StarterQueue is a small, read-only CLI and GitHub Action that audits starter iss
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-VyxorDev%2Fstarterqueue-181717?logo=github)](https://github.com/VyxorDev/starterqueue)
 
+[**Download v0.5.0**](https://github.com/VyxorDev/starterqueue/releases/tag/v0.5.0) · [**Install CLI**](#install-the-cli) · [**GitHub Action**](#github-action) · [**Interactive TUI**](#interactive-terminal-ui)
+
 </div>
 
 ---
@@ -83,19 +85,54 @@ Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; exp
 
 ## Quick start
 
+### Install the CLI
+
+StarterQueue v0.5.0 is available as a [GitHub Release tarball](https://github.com/VyxorDev/starterqueue/releases/tag/v0.5.0). It has **not** been published to the npm registry; installing the release tarball requires Node.js 20+ and npm, but **no npm account**.
+
+**Windows PowerShell:**
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/VyxorDev/starterqueue/releases/download/v0.5.0/starterqueue-0.5.0.tgz" -OutFile "starterqueue-0.5.0.tgz"
+npm install --global .\starterqueue-0.5.0.tgz
+starterqueue
+```
+
+**macOS / Linux:**
+
+```bash
+curl -fL -o starterqueue-0.5.0.tgz https://github.com/VyxorDev/starterqueue/releases/download/v0.5.0/starterqueue-0.5.0.tgz
+npm install --global ./starterqueue-0.5.0.tgz
+starterqueue
+```
+
+Run `starterqueue` for the interactive TUI, or `starterqueue audit owner/repo` for a scriptable audit. For full closing-PR detection (`SQ004`), set `GH_TOKEN` before running. If you use an authenticated GitHub CLI on Windows, you can set it with `$env:GH_TOKEN = gh auth token`.
+
 ### GitHub Action
 
-For v0.5.0, the normal way to run StarterQueue in CI is a single Action step:
+To audit your own repository weekly or on demand, save this as `.github/workflows/starterqueue.yml`:
 
 ```yaml
+name: StarterQueue audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
 permissions:
   contents: read
   issues: read
   pull-requests: read
 
-steps:
-  - name: Audit starter queue
-    uses: VyxorDev/starterqueue@v0.5.0
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Audit starter queue
+        uses: VyxorDev/starterqueue@v0.5.0
+        with:
+          policy: balanced
+          fail-on: fail
 ```
 
 The Action audits the current workflow repository by default, uses the workflow token automatically for that same-repository audit, and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
