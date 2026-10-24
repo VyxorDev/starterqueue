@@ -5,6 +5,7 @@ import { fetchStarterIssues, parseRepo, type RepoRef } from "./github.js";
 import { summarizeAudit } from "./output.js";
 import {
   nextIssueFilter,
+  emptyResultsMessage,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
   truncateText,
@@ -381,8 +382,11 @@ class TerminalApp {
         const rows = Math.max(2, height - 15);
         const window = visibleWindow(this.selected, items.length, rows);
         if (items.length === 0) {
+          const empty = emptyResultsMessage(summary.total, this.filter, this.search);
           add("");
-          add(label("No matching issues. Press F or X to change the view."));
+          add(accent(empty.title));
+          add("");
+          add(label(truncateText(empty.hint, contentWidth)));
         }
         for (let index = window.start; index < window.end; index += 1) {
           const item = items[index];

@@ -45,6 +45,32 @@ export function visibleWindow(selected: number, total: number, rows: number): { 
   return { start, end: Math.min(total, start + count) };
 }
 
+export function emptyResultsMessage(
+  total: number,
+  filter: IssueFilter,
+  search: string,
+): { title: string; hint: string } {
+  if (total === 0) {
+    return {
+      title: "No open starter issues found",
+      hint: "This repository has no open 'good first issue' tickets. Press R to try another repository.",
+    };
+  }
+  if (search.trim()) {
+    return {
+      title: "No search matches",
+      hint: "Press X to clear search, or F to change the severity filter.",
+    };
+  }
+  if (filter !== "all") {
+    return {
+      title: "No " + filter.toUpperCase() + " issues",
+      hint: "Press F to switch to another severity filter.",
+    };
+  }
+  return { title: "Nothing to show", hint: "Press R to start another audit." };
+}
+
 export function safeGitHubIssueUrl(input: string): string | null {
   try {
     const url = new URL(input);

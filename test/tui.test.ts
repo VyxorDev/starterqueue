@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   nextIssueFilter,
+  emptyResultsMessage,
   safeGitHubIssueUrl,
   sanitizeTerminalText,
   truncateText,
@@ -53,6 +54,15 @@ test("results window stays within bounds", () => {
   assert.deepEqual(visibleWindow(0, 20, 5), { start: 0, end: 5 });
   assert.deepEqual(visibleWindow(19, 20, 5), { start: 15, end: 20 });
   assert.deepEqual(visibleWindow(0, 0, 5), { start: 0, end: 0 });
+});
+
+test("empty-state messages distinguish empty queues from filtered results", () => {
+  assert.deepEqual(emptyResultsMessage(0, "all", ""), {
+    title: "No open starter issues found",
+    hint: "This repository has no open 'good first issue' tickets. Press R to try another repository.",
+  });
+  assert.equal(emptyResultsMessage(5, "fail", "").title, "No FAIL issues");
+  assert.equal(emptyResultsMessage(5, "all", "xyz").title, "No search matches");
 });
 
 test("only normal GitHub issue URLs can launch a browser", () => {
