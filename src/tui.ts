@@ -390,7 +390,7 @@ class TerminalApp {
           add((selected ? accent("› ") : "  ") + (selected ? title(action) : label(action)));
         });
         if (this.notice) {
-          add("");
+          if (!compact) add("");
           add(this.color(truncateText(this.notice, contentWidth), "coral"));
         }
         footer = compact
