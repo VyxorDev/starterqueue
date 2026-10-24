@@ -8,10 +8,11 @@ test("audit options use StarterQueue defaults", () => {
     label: "good first issue",
     staleDays: 90,
     failOn: "none",
+    policy: "balanced",
   });
 });
 
-test("audit options accept custom label, stale threshold, and CI threshold", () => {
+test("audit options accept custom label, stale threshold, policy, and CI threshold", () => {
   assert.deepEqual(
     parseAuditOptions([
       "--json",
@@ -19,6 +20,8 @@ test("audit options accept custom label, stale threshold, and CI threshold", () 
       "starter task",
       "--stale-days",
       "45",
+      "--policy",
+      "strict",
       "--fail-on",
       "warn",
     ]),
@@ -27,6 +30,7 @@ test("audit options accept custom label, stale threshold, and CI threshold", () 
       label: "starter task",
       staleDays: 45,
       failOn: "warn",
+      policy: "strict",
     },
   );
 });
@@ -46,6 +50,13 @@ test("audit options reject invalid CI thresholds", () => {
   assert.throws(
     () => parseAuditOptions(["--fail-on", "error"]),
     /one of: 'none', 'fail', or 'warn'/,
+  );
+});
+
+test("audit options reject invalid policies", () => {
+  assert.throws(
+    () => parseAuditOptions(["--policy", "aggressive"]),
+    /either 'balanced' or 'strict'/,
   );
 });
 
