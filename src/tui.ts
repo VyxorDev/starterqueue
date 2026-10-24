@@ -1,0 +1,541 @@
+import { spawn } from "node:child_process";
+import readline from "node:readline";
+import { auditIssues } from "./audit.js";
+import { fetchStarterIssues, parseRepo, type RepoRef } from "./github.js";
+import { summarizeAudit } from "./output.js";
+import {
+  nextIssueFilter,
+  emptyResultsMessage,
+  availableContentRows,
+  terminalLayout,
+  wrapTerminalText,
+  safeGitHubIssueUrl,
+  sanitizeTerminalText,
+  truncateText,
+  visibleResults,
+  visibleWindow,
+  type IssueFilter,
+} from "./tui-model.js";
+import type { AuditedIssue } from "./types.js";
+
+type Screen = "welcome" | "auditing" | "results" | "detail" | "help" | "error";
+interface Keypress {
+  name?: string;
+  ctrl?: boolean;
+  meta?: boolean;
+}
+
+const ESC = "\u001b[";
+const PALETTE = {
+  silver: [232, 233, 236],
+  muted: [143, 153, 166],
+  frost: [185, 201, 226],
+  green: [125, 199, 165],
+  amber: [229, 189, 123],
+  coral: [231, 143, 151],
+} as const;
+
+type Tone = keyof typeof PALETTE;
+
+class TerminalApp {
+  private screen: Screen = "welcome";
+  private previousScreen: Screen = "welcome";
+  private repoInput = "";
+  private inputFocused = true;
+  private menuIndex = 0;
+  private notice = "";
+  private repository = "";
+  private results: AuditedIssue[] = [];
+  private filter: IssueFilter = "all";
+  private search = "";
+  private searchFocused = false;
+  private selected = 0;
+  private detailScroll = 0;
+  private helpScroll = 0;
+  private lastColumns = 0;
+  private lastRows = 0;
+  private resizePoll: ReturnType<typeof setInterval> | undefined;
+  private progress = "";
+  private errorMessage = "";
+  private spinnerIndex = 0;
+  private spinner: ReturnType<typeof setInterval> | undefined;
+  private auditController: AbortController | undefined;
+  private finished = false;
+  private originalRaw = false;
+  private resolveDone: (() => void) | undefined;
+
+  constructor(
+    private readonly input: NodeJS.ReadStream,
+    private readonly output: NodeJS.WriteStream,
+  ) {}
+
+  run(): Promise<void> {
+    this.originalRaw = Boolean(this.input.isRaw);
+    readline.emitKeypressEvents(this.input);
+    this.input.setRawMode(true);
+    this.input.resume();
+    this.input.on("keypress", this.onKeypress);
+    this.output.on("resize", this.onResize);
+    process.on("SIGINT", this.onSignal);
+    process.on("SIGTERM", this.onSignal);
+    this.output.write(ESC + "?1049h" + ESC + "?25l");
+    this.render();
+    // Some Windows terminals do not reliably emit a resize event.
+    // Poll dimensions as a lightweight fallback; redraw only on change.
+    this.resizePoll = setInterval(() => {
+      const columns = this.output.columns || this.lastColumns;
+      const rows = this.output.rows || this.lastRows;
+      if (columns !== this.lastColumns || rows !== this.lastRows) this.render();
+    }, 250);
+    this.resizePoll.unref();
+    return new Promise<void>((resolve) => {
+      this.resolveDone = resolve;
+    });
+  }
+
+  private readonly onResize = (): void => this.render();
+  private readonly onSignal = (): void => this.close();
+  private readonly onKeypress = (text: string, key: Keypress = {}): void => {
+    if (this.finished) return;
+    if ((key.ctrl && key.name === "c") || (key.ctrl && key.name === "d")) {
+      this.close();
+      return;
+    }
+    if (this.screen === "auditing") return;
+    if (this.screen === "welcome") this.welcomeKey(text, key);
+    else if (this.screen === "results") this.resultsKey(text, key);
+    else if (this.screen === "detail") this.detailKey(key);
+    else if (this.screen === "help") {
+      if (key.name === "escape" || key.name === "return" || key.name === "backspace") {
+        this.screen = this.previousScreen;
+      } else if (key.name === "up") {
+        this.helpScroll = Math.max(0, this.helpScroll - 1);
+      } else if (key.name === "down") {
+        this.helpScroll += 1;
+      } else if (key.name === "pageup") {
+        this.helpScroll = Math.max(0, this.helpScroll - 6);
+      } else if (key.name === "pagedown") {
+        this.helpScroll += 6;
+      }
+    } else if (this.screen === "error") {
+      if (key.name === "escape" || key.name === "return") {
+        this.screen = "welcome";
+        this.inputFocused = true;
+      }
+    }
+    this.render();
+  };
+
+  private close(): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.stopSpinner();
+    if (this.resizePoll) clearInterval(this.resizePoll);
+    this.resizePoll = undefined;
+    this.auditController?.abort();
+    this.input.off("keypress", this.onKeypress);
+    this.output.off("resize", this.onResize);
+    process.off("SIGINT", this.onSignal);
+    process.off("SIGTERM", this.onSignal);
+    this.input.setRawMode(this.originalRaw);
+    this.input.pause();
+    this.output.write(ESC + "?25h" + ESC + "?1049l");
+    this.resolveDone?.();
+  }
+
+  private welcomeKey(text: string, key: Keypress): void {
+    if (key.name === "up") {
+      if (this.inputFocused) {
+        this.inputFocused = false;
+        this.menuIndex = 2;
+      } else {
+        this.menuIndex = (this.menuIndex + 2) % 3;
+      }
+    } else if (key.name === "down") {
+      if (this.inputFocused) {
+        this.inputFocused = false;
+        this.menuIndex = 0;
+      } else {
+        this.menuIndex = (this.menuIndex + 1) % 3;
+      }
+    } else if (key.name === "tab") {
+      this.inputFocused = !this.inputFocused;
+      this.menuIndex = 0;
+    } else if (key.name === "escape") {
+      this.inputFocused = true;
+      this.notice = "";
+    } else if (key.name === "backspace" && this.inputFocused) {
+      this.repoInput = Array.from(this.repoInput).slice(0, -1).join("");
+      this.notice = "";
+    } else if (key.name === "return") {
+      if (this.inputFocused || this.menuIndex === 0) {
+        this.startAudit();
+      } else if (this.menuIndex === 1) {
+        this.openHelp();
+      } else {
+        this.close();
+      }
+    } else if (this.printable(text, key)) {
+      this.inputFocused = true;
+      this.repoInput += text;
+      this.notice = "";
+    }
+  }
+
+  private resultsKey(text: string, key: Keypress): void {
+    if (this.searchFocused) {
+      if (key.name === "escape" || key.name === "return") {
+        this.searchFocused = false;
+      } else if (key.name === "backspace") {
+        this.search = Array.from(this.search).slice(0, -1).join("");
+        this.selected = 0;
+      } else if (this.printable(text, key)) {
+        this.search += text;
+        this.selected = 0;
+      }
+      return;
+    }
+
+    const items = visibleResults(this.results, this.filter, this.search);
+    if (key.name === "up") this.selected = Math.max(0, this.selected - 1);
+    else if (key.name === "down") this.selected = Math.min(items.length - 1, this.selected + 1);
+    else if (key.name === "pageup") this.selected = Math.max(0, this.selected - 8);
+    else if (key.name === "pagedown") this.selected = Math.min(items.length - 1, this.selected + 8);
+    else if (key.name === "return" && items[this.selected]) {
+      this.detailScroll = 0;
+      this.screen = "detail";
+    }
+    else if (key.name === "escape" || text === "r") {
+      this.screen = "welcome";
+      this.inputFocused = true;
+      this.menuIndex = 0;
+      this.repoInput = "";
+      this.notice = "";
+    } else if (text === "f") {
+      this.filter = nextIssueFilter(this.filter);
+      this.selected = 0;
+    } else if (text === "/") {
+      this.searchFocused = true;
+    } else if (text === "x") {
+      this.search = "";
+      this.selected = 0;
+    } else if (text === "?") {
+      this.openHelp();
+    } else if (text === "o" && items[this.selected]) {
+      this.openIssue(items[this.selected]);
+    }
+    this.selected = Math.max(0, this.selected);
+  }
+
+  private detailKey(key: Keypress): void {
+    const items = visibleResults(this.results, this.filter, this.search);
+    if (key.name === "escape" || key.name === "backspace") {
+      this.screen = "results";
+    } else if (key.name === "o" && items[this.selected]) {
+      this.openIssue(items[this.selected]);
+    } else if (key.name === "return") {
+      this.screen = "results";
+    } else if (key.name === "up") {
+      this.detailScroll = Math.max(0, this.detailScroll - 1);
+    } else if (key.name === "down") {
+      this.detailScroll += 1;
+    } else if (key.name === "pageup") {
+      this.detailScroll = Math.max(0, this.detailScroll - 8);
+    } else if (key.name === "pagedown") {
+      this.detailScroll += 8;
+    }
+  }
+
+  private printable(text: string, key: Keypress): boolean {
+    return Boolean(text && !key.ctrl && !key.meta && !/[\u0000-\u001f\u007f]/.test(text));
+  }
+
+  private openHelp(): void {
+    this.previousScreen = this.screen;
+    this.helpScroll = 0;
+    this.screen = "help";
+  }
+
+  private startAudit(): void {
+    let repo: RepoRef;
+    try {
+      repo = parseRepo(this.repoInput);
+    } catch (error) {
+      this.notice = error instanceof Error ? error.message : String(error);
+      this.inputFocused = true;
+      return;
+    }
+    this.repository = repo.owner + "/" + repo.name;
+    this.auditController = new AbortController();
+    this.progress = "Fetching issues and closing PR links";
+    this.screen = "auditing";
+    this.spinnerIndex = 0;
+    this.spinner = setInterval(() => {
+      this.spinnerIndex = (this.spinnerIndex + 1) % 4;
+      this.render();
+    }, 220);
+    void this.performAudit(repo);
+  }
+
+  private async performAudit(repo: RepoRef): Promise<void> {
+    const controller = this.auditController;
+    try {
+      const issues = await fetchStarterIssues(repo, { token: process.env.GH_TOKEN, signal: controller?.signal });
+      if (this.finished) return;
+      this.progress = "Evaluating readiness rules";
+      this.render();
+      this.results = auditIssues(issues);
+      this.filter = "all";
+      this.search = "";
+      this.searchFocused = false;
+      this.selected = 0;
+      this.notice = process.env.GH_TOKEN ? "" : "GH_TOKEN not set: SQ004 closing-PR detection was skipped.";
+      this.screen = "results";
+    } catch (error) {
+      if (this.finished) return;
+      this.errorMessage = error instanceof Error ? error.message : String(error);
+      this.screen = "error";
+    } finally {
+      this.stopSpinner();
+      if (this.auditController === controller) this.auditController = undefined;
+      if (!this.finished) this.render();
+    }
+  }
+
+  private stopSpinner(): void {
+    if (this.spinner) clearInterval(this.spinner);
+    this.spinner = undefined;
+  }
+
+  private openIssue(result: AuditedIssue): void {
+    const url = safeGitHubIssueUrl(result.issue.html_url);
+    if (!url) {
+      this.notice = "Cannot open an unrecognized GitHub issue URL.";
+      return;
+    }
+    const command = process.platform === "win32"
+      ? "explorer.exe"
+      : process.platform === "darwin" ? "open" : "xdg-open";
+    try {
+      const child = spawn(command, [url], { detached: true, stdio: "ignore", windowsHide: true });
+      child.on("error", () => {
+        this.notice = "Could not launch the browser. Open the URL shown in issue details.";
+        if (!this.finished) this.render();
+      });
+      child.unref();
+      this.notice = "Requested to open the issue in your browser.";
+    } catch {
+      this.notice = "Could not launch the browser. Open the URL shown in issue details.";
+    }
+  }
+
+  private color(value: string, tone: Tone, bold = false): string {
+    if (process.env.NO_COLOR !== undefined) return value;
+    const depth = this.output.getColorDepth();
+    if (depth < 4) return value;
+    const rgb = PALETTE[tone];
+    const foreground = depth >= 24
+      ? ESC + "38;2;" + rgb.join(";") + "m"
+      : depth >= 8
+        ? ESC + "38;5;" + ({ silver: 255, muted: 246, frost: 153, green: 115, amber: 222, coral: 210 }[tone]) + "m"
+        : ESC + ({ silver: "37", muted: "90", frost: "36", green: "32", amber: "33", coral: "31" }[tone]) + "m";
+    return (bold ? ESC + "1m" : "") + foreground + value + ESC + "0m";
+  }
+
+  private statusTone(status: AuditedIssue["status"]): Tone {
+    return status === "fail" ? "coral" : status === "warn" ? "amber" : "green";
+  }
+
+  private render(): void {
+    if (this.finished) return;
+    const layout = terminalLayout(this.output.columns || this.lastColumns || 80, this.output.rows || this.lastRows || 24);
+    const { width, height, contentWidth, compact, tooSmall } = layout;
+    this.lastColumns = width;
+    this.lastRows = height;
+    const lines: string[] = [];
+    const indent = " ".repeat(layout.indent);
+    const add = (value = ""): void => { lines.push(indent + value); };
+    const label = (value: string): string => this.color(value, "muted");
+    const title = (value: string): string => this.color(value, "silver", true);
+    const accent = (value: string): string => this.color(value, "frost", true);
+    const separator = "─".repeat(contentWidth);
+    let footer = "Ctrl+C  Exit";
+
+    if (tooSmall) {
+      add("");
+      add(title(truncateText("starterqueue", contentWidth)));
+      add("");
+      add(label(truncateText("Resize terminal (min 44 × 16).", contentWidth)));
+    } else {
+      add("");
+      add(accent("◆") + " " + title("starterqueue"));
+      add(label(separator));
+      add("");
+
+      if (this.screen === "welcome") {
+        if (!compact) add("");
+        add(title("Welcome."));
+        if (!compact) add(label("A clearer view of your contribution queue."));
+        add("");
+        if (!compact) add("");
+        add(label("REPOSITORY"));
+        const entered = truncateText(this.repoInput, contentWidth - 7);
+        add((this.inputFocused ? accent("› ") : label("  ")) + (entered ? title(entered) : label("owner/repository")) + (this.inputFocused ? accent("▍") : ""));
+        if (!compact) add(label("Paste a GitHub URL or type owner/repo."));
+        add("");
+        if (!compact) add("");
+        const actions = ["Start audit", "Help & shortcuts", "Exit"];
+        actions.forEach((action, index) => {
+          const selected = !this.inputFocused && this.menuIndex === index;
+          add((selected ? accent("› ") : "  ") + (selected ? title(action) : label(action)));
+        });
+        if (this.notice) {
+          if (!compact) add("");
+          add(this.color(truncateText(this.notice, contentWidth), "coral"));
+        }
+        footer = compact
+          ? "Type repo · ↑↓ Menu · Tab · Enter"
+          : "Type repository  ·  ↑↓ Menu  ·  Tab Focus  ·  Enter Select";
+      } else if (this.screen === "auditing") {
+        add("");
+        add(title("Auditing " + truncateText(this.repository, contentWidth - 9)));
+        add("");
+        add(accent(["◐", "◓", "◑", "◒"][this.spinnerIndex]) + "  " + label(this.progress));
+        add("");
+        add(label("This may take a moment for larger repositories."));
+        if (!process.env.GH_TOKEN) {
+          add("");
+          add(this.color("GH_TOKEN not set — SQ004 closing-PR checks will be skipped.", "amber"));
+        }
+        footer = "Ctrl+C  Exit";
+      } else if (this.screen === "results") {
+        const summary = summarizeAudit(this.results);
+        const items = visibleResults(this.results, this.filter, this.search);
+        add(title(truncateText(this.repository, contentWidth)));
+        if (!compact) {
+          add(label("Audit complete  ·  " + summary.total + " issues"));
+          add("");
+        }
+        add(this.color("PASS " + summary.pass, "green", true) + "    " +
+          this.color("WARN " + summary.warn, "amber", true) + "    " +
+          this.color("FAIL " + summary.fail, "coral", true));
+        if (!compact) add("");
+        add(label("FILTER  ") + accent(this.filter.toUpperCase()) + (compact ? "" : label("  ·  Press F to cycle")));
+        add(label("SEARCH  ") + (this.search ? title(truncateText(this.search, contentWidth - 12)) : label("All issues")) +
+          (this.searchFocused ? accent("▍") : ""));
+        add(label(separator));
+        const rows = Math.max(1, availableContentRows(height, lines.length, 2 + (this.notice ? 1 : 0)));
+        const window = visibleWindow(this.selected, items.length, rows);
+        if (items.length === 0) {
+          const empty = emptyResultsMessage(summary.total, this.filter, this.search);
+          add("");
+          add(accent(empty.title));
+          add("");
+          add(label(truncateText(empty.hint, contentWidth)));
+        }
+        for (let index = window.start; index < window.end; index += 1) {
+          const item = items[index];
+          const selected = index === this.selected;
+          const status = item.status.toUpperCase().padEnd(4);
+          const heading = "#" + item.issue.number + "  " + sanitizeTerminalText(item.issue.title);
+          const maxTitle = Math.max(8, contentWidth - 13);
+          add((selected ? accent("› ") : "  ") +
+            this.color(status, this.statusTone(item.status), selected) +
+            "  " + (selected ? title(truncateText(heading, maxTitle)) : label(truncateText(heading, maxTitle))));
+        }
+        add("");
+        add(label("Showing " + items.length + " of " + summary.total + " issues"));
+        if (this.notice) add(this.color(truncateText(this.notice, contentWidth), "frost"));
+        footer = this.searchFocused
+          ? (compact ? "Type · Enter Done · Esc Done" : "Type to search  ·  Enter Done  ·  Esc Done")
+          : (compact ? "↑↓ · Enter · F · / · O · R · ?" : "↑↓ Browse  ·  Enter Details  ·  F Filter  ·  / Search  ·  O Open  ·  R New");
+      } else if (this.screen === "detail") {
+        const item = visibleResults(this.results, this.filter, this.search)[this.selected];
+        if (!item) {
+          this.screen = "results";
+          this.render();
+          return;
+        }
+        add(this.color(item.status.toUpperCase(), this.statusTone(item.status), true) +
+          "   " + title("#" + item.issue.number));
+        if (!compact) add("");
+        add(title(truncateText(sanitizeTerminalText(item.issue.title), contentWidth)));
+        if (!compact) add("");
+        add(label("FINDINGS"));
+        const body: string[] = [];
+        if (item.findings.length === 0) {
+          body.push(this.color("No readiness problems detected.", "green"));
+          body.push("");
+        } else {
+          for (const finding of item.findings) {
+            body.push(this.color(finding.code + " " + finding.level.toUpperCase(), finding.level === "fail" ? "coral" : "amber"));
+            for (const line of wrapTerminalText(finding.message, contentWidth - 2)) {
+              body.push(label(line));
+            }
+            body.push("");
+          }
+        }
+        body.push(label("ISSUE URL"));
+        for (const line of wrapTerminalText(item.issue.html_url, contentWidth)) {
+          body.push(accent(line));
+        }
+        if (this.notice) {
+          body.push("");
+          for (const line of wrapTerminalText(this.notice, contentWidth)) body.push(label(line));
+        }
+        const available = Math.max(1, availableContentRows(height, lines.length));
+        this.detailScroll = Math.min(this.detailScroll, Math.max(0, body.length - available));
+        for (const line of body.slice(this.detailScroll, this.detailScroll + available)) add(line);
+        footer = compact
+          ? "↑↓ Scroll · Esc Back · O Open"
+          : body.length > available
+            ? "↑↓ Scroll  ·  PgUp/PgDn  ·  Esc Back  ·  O Open"
+            : "Esc Back  ·  O Open in browser";
+      } else if (this.screen === "help") {
+        add(title("Keyboard shortcuts"));
+        add("");
+        const shortcuts = [
+          ["Enter", "Select or view details"],
+          ["↑ / ↓", "Navigate menus and issues"],
+          ["Tab", "Switch welcome-screen focus"],
+          ["F", "Cycle results filter"],
+          ["/", "Search issue titles, numbers, findings"],
+          ["X", "Clear results search"],
+          ["O", "Open selected issue in browser"],
+          ["R", "Start another audit"],
+          ["Esc", "Back / finish search"],
+          ["Ctrl+C", "Exit StarterQueue"],
+        ];
+        const available = Math.max(1, availableContentRows(height, lines.length));
+        this.helpScroll = Math.min(this.helpScroll, Math.max(0, shortcuts.length - available));
+        for (const [key, description] of shortcuts.slice(this.helpScroll, this.helpScroll + available)) {
+          add(accent(key.padEnd(10)) + label(truncateText(description, contentWidth - 10)));
+        }
+        footer = compact ? "↑↓ Scroll · Esc Back" : "↑↓ Scroll · Esc Back";
+      } else if (this.screen === "error") {
+        add(this.color("Audit could not complete.", "coral", true));
+        add("");
+        add(label(truncateText(this.errorMessage, contentWidth)));
+        add("");
+        add(label("Check the repository name, network access and GH_TOKEN."));
+        footer = "Enter / Esc  Back to welcome";
+      }
+    }
+
+    // Reserve the final two visible rows for the divider and shortcuts.
+    // Never let a long issue list push navigation hints off-screen.
+    lines.length = Math.min(lines.length, Math.max(0, height - 3));
+    while (lines.length < height - 3) lines.push("");
+    add(label(separator));
+    add(label(truncateText(footer, contentWidth)));
+    const rendered = lines.join("\n");
+    this.output.write(ESC + "H" + ESC + "2J" + rendered + ESC + "0m");
+  }
+}
+
+export async function runTui(): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
+    throw new Error("Interactive mode requires a terminal. Use starterqueue audit owner/repo for scripts and CI.");
+  }
+  await new TerminalApp(process.stdin, process.stdout).run();
+}

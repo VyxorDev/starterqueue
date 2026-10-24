@@ -119,6 +119,20 @@ For production workflows, prefer a reviewed release tag or immutable commit SHA 
 
 A ready-to-copy scheduled workflow is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
 
+### Interactive terminal UI (development preview)
+
+Run StarterQueue with no arguments in a real terminal to open the keyboard-first interface:
+
+```bash
+starterqueue
+# Or from a source checkout:
+node dist/src/cli.js
+```
+
+The interactive interface uses the Obsidian / Silver / Frost Blue palette, with a welcome prompt for an `owner/repo` or GitHub URL, live audit state, a searchable issue explorer, severity filters, issue details and a shortcut to open an issue in your browser. Press `?` for help from the results screen, or `Ctrl+C` to exit.
+
+The UI runs only when stdin and stdout are terminals. Automation continues to use `starterqueue audit owner/repo`, including `--json` and `--fail-on`. No audit rule, policy, schema or GitHub Action behavior is changed by the interface. `GH_TOKEN` is still required for SQ004 detection.
+
 ### Run locally
 
 Requirements:

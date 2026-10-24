@@ -389,3 +389,29 @@ test("authenticated audits require node IDs instead of silently skipping SQ004",
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("abort stops GitHub retries immediately", async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let attempts = 0;
+
+  globalThis.fetch = async () => {
+    attempts += 1;
+    controller.abort();
+    throw new Error("request aborted");
+  };
+
+  try {
+    await assert.rejects(
+      () => fetchStarterIssues(
+        { owner: "example", name: "project" },
+        { signal: controller.signal, token: "" },
+      ),
+      /request aborted/,
+    );
+    assert.equal(attempts, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
