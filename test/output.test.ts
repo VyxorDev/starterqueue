@@ -38,6 +38,7 @@ test("JSON output has a stable schema version and summary", () => {
       label: "good first issue",
       staleDays: 90,
       failOn: "warn",
+      policy: "strict",
     },
     results,
   ) as Record<string, unknown>;
@@ -47,6 +48,7 @@ test("JSON output has a stable schema version and summary", () => {
   assert.deepEqual(output.configuration, {
     label: "good first issue",
     stale_days: 90,
+    policy: "strict",
     fail_on: "warn",
   });
   assert.deepEqual(output.summary, {
