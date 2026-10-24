@@ -85,7 +85,7 @@ Use GitHub's existing milestone fields. Closed milestones fail with `SQ008`; exp
 
 ### GitHub Action
 
-For v0.4.0, the normal way to run StarterQueue in CI is a single Action step:
+For v0.5.0, the normal way to run StarterQueue in CI is a single Action step:
 
 ```yaml
 permissions:
@@ -95,7 +95,7 @@ permissions:
 
 steps:
   - name: Audit starter queue
-    uses: VyxorDev/starterqueue@v0.4.0
+    uses: VyxorDev/starterqueue@v0.5.0
 ```
 
 The Action audits the current workflow repository by default, uses the workflow token automatically for that same-repository audit, and fails when it finds a `FAIL` result. It installs StarterQueue from the repository lockfile, builds it, and runs the same audit engine as the CLI. No repository checkout or npm commands are required in the consuming workflow.
@@ -119,9 +119,9 @@ For production workflows, prefer a reviewed release tag or immutable commit SHA 
 
 A ready-to-copy scheduled workflow is available at [`examples/starterqueue.yml`](examples/starterqueue.yml).
 
-### Interactive terminal UI (development preview)
+### Interactive terminal UI
 
-Run StarterQueue with no arguments in a real terminal to open the keyboard-first interface:
+Starting in v0.5.0, run StarterQueue with no arguments in a real terminal to open the keyboard-first interface:
 
 ```bash
 starterqueue
@@ -129,7 +129,7 @@ starterqueue
 node dist/src/cli.js
 ```
 
-The interactive interface uses the Obsidian / Silver / Frost Blue palette, with a welcome prompt for an `owner/repo` or GitHub URL, live audit state, a searchable issue explorer, severity filters, issue details and a shortcut to open an issue in your browser. Press `?` for help from the results screen, or `Ctrl+C` to exit.
+The interactive interface uses the Obsidian / Silver / Frost Blue palette, with a welcome prompt for an `owner/repo` or GitHub URL, live audit state, a searchable issue explorer, severity filters, scrollable issue details and a shortcut to open an issue in your browser. Press `F` to filter, `/` to search, `Enter` to view details, `O` to open an issue, `R` for a new audit, `Esc` to go back, or `Ctrl+C` to exit. Use `?` from the results screen for help.
 
 The UI runs only when stdin and stdout are terminals. Automation continues to use `starterqueue audit owner/repo`, including `--json` and `--fail-on`. No audit rule, policy, schema or GitHub Action behavior is changed by the interface. `GH_TOKEN` is still required for SQ004 detection.
 
@@ -205,7 +205,7 @@ node dist/src/cli.js audit owner/repo --label "starter task" --stale-days 45 --p
 For the Action, pass the corresponding `with:` inputs. Multiple rule overrides use a comma-separated `rule-levels` value:
 
 ```yaml
-- uses: VyxorDev/starterqueue@v0.4.0
+- uses: VyxorDev/starterqueue@v0.5.0
   with:
     label: starter task
     stale-days: '45'
