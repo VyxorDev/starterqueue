@@ -166,6 +166,19 @@ starterqueue
 node dist/src/cli.js
 ```
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/eef61e4a-ad21-446f-a3dd-97b27c892f6b" alt="StarterQueue TUI showing the full rust-lang/rust-clippy audit results" width="100%">
+</p>
+
+<details>
+<summary>More TUI screens</summary>
+<br>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/655354d4-056a-4d9a-8c09-fcf01408e85a" alt="StarterQueue TUI welcome screen" width="49%">
+  <img src="https://github.com/user-attachments/assets/2ea6617c-76b0-48d6-b90e-ef328d67087e" alt="StarterQueue issue detail showing SQ001, SQ003 and SQ004 findings" width="49%">
+</p>
+</details>
+
 The interactive interface uses the Obsidian / Silver / Frost Blue palette, with a welcome prompt for an `owner/repo` or GitHub URL, live audit state, a searchable issue explorer, severity filters, scrollable issue details and a shortcut to open an issue in your browser. Press `F` to filter, `/` to search, `Enter` to view details, `O` to open an issue, `R` for a new audit, `Esc` to go back, or `Ctrl+C` to exit. Use `?` from the results screen for help.
 
 The UI runs only when stdin and stdout are terminals. Automation continues to use `starterqueue audit owner/repo`, including `--json` and `--fail-on`. No audit rule, policy, schema or GitHub Action behavior is changed by the interface. `GH_TOKEN` is still required for SQ004 detection.
