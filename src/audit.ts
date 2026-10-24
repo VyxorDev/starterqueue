@@ -4,6 +4,7 @@ import {
   findingLevel,
   type AuditPolicy,
   type AuditRuleCode,
+  type RuleLevelOverrides,
 } from "./policy.js";
 import type { AuditedIssue, Finding, GitHubLabel, StarterIssue } from "./types.js";
 
@@ -20,6 +21,7 @@ const EXPLICIT_NOT_READY_PATTERN = /\bnot\s+ready\s+for\s+contributions?\b/i;
 export interface AuditOptions {
   staleDays?: number;
   policy?: AuditPolicy;
+  ruleLevels?: RuleLevelOverrides;
 }
 
 function normalizeLabel(label: GitHubLabel): string {
@@ -35,10 +37,11 @@ function finding(
   code: AuditRuleCode,
   message: string,
   policy: AuditPolicy,
+  ruleLevels: RuleLevelOverrides,
 ): Finding {
   return {
     code,
-    level: findingLevel(code, policy),
+    level: findingLevel(code, policy, ruleLevels),
     message,
   };
 }
@@ -51,14 +54,15 @@ export function auditIssue(
   const findings: Finding[] = [];
   const staleDays = options.staleDays ?? DEFAULT_STALE_DAYS;
   const policy = options.policy ?? DEFAULT_AUDIT_POLICY;
+  const ruleLevels = options.ruleLevels ?? {};
 
   if (issue.assignees.length > 0) {
-    findings.push(finding("SQ001", "Issue is already assigned", policy));
+    findings.push(finding("SQ001", "Issue is already assigned", policy, ruleLevels));
   }
 
   const labels = issue.labels.map(normalizeLabel);
   if (labels.some((label) => BLOCKED_LABELS.has(label))) {
-    findings.push(finding("SQ002", "Issue is marked as blocked or waiting", policy));
+    findings.push(finding("SQ002", "Issue is marked as blocked or waiting", policy, ruleLevels));
   }
 
   const updatedAt = new Date(issue.updated_at);
@@ -66,7 +70,7 @@ export function auditIssue(
   const ageDays = Number.isFinite(ageMs) ? Math.floor(ageMs / 86_400_000) : 0;
 
   if (ageDays >= staleDays) {
-    findings.push(finding("SQ003", `No activity for ${ageDays} days`, policy));
+    findings.push(finding("SQ003", `No activity for ${ageDays} days`, policy, ruleLevels));
   }
 
   const openPullRequests = issue.open_pull_requests ?? [];
@@ -78,6 +82,7 @@ export function auditIssue(
         ? `Open pull request ${refs} is linked to close this issue`
         : `Open pull requests ${refs} are linked to close this issue`,
       policy,
+      ruleLevels,
     ));
   }
 
@@ -86,6 +91,7 @@ export function auditIssue(
       "SQ005",
       "Issue text explicitly says it is not ready for contributions",
       policy,
+      ruleLevels,
     ));
   }
 
@@ -97,11 +103,12 @@ export function auditIssue(
         ? "Issue is blocked by 1 open GitHub issue dependency"
         : `Issue is blocked by ${blockedBy} open GitHub issue dependencies`,
       policy,
+      ruleLevels,
     ));
   }
 
   if (issue.locked) {
-    findings.push(finding("SQ007", "Issue conversation is locked", policy));
+    findings.push(finding("SQ007", "Issue conversation is locked", policy, ruleLevels));
   }
 
   const milestone = issue.milestone;
@@ -110,6 +117,7 @@ export function auditIssue(
       "SQ008",
       `Issue belongs to closed milestone "${milestone.title}"`,
       policy,
+      ruleLevels,
     ));
   } else if (milestone?.state === "open" && milestone.due_on) {
     const dueOn = new Date(milestone.due_on);
@@ -118,6 +126,7 @@ export function auditIssue(
         "SQ009",
         `Milestone "${milestone.title}" is past due (due ${dueOn.toISOString().slice(0, 10)})`,
         policy,
+        ruleLevels,
       ));
     }
   }
