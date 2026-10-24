@@ -31,6 +31,10 @@ test("audit options accept custom label, stale threshold, and CI threshold", () 
   );
 });
 
+test("audit options accept an explicit disabled CI threshold", () => {
+  assert.equal(parseAuditOptions(["--fail-on", "none"]).failOn, "none");
+});
+
 test("audit options reject invalid stale thresholds", () => {
   assert.throws(
     () => parseAuditOptions(["--stale-days", "0"]),
@@ -41,7 +45,7 @@ test("audit options reject invalid stale thresholds", () => {
 test("audit options reject invalid CI thresholds", () => {
   assert.throws(
     () => parseAuditOptions(["--fail-on", "error"]),
-    /either 'fail' or 'warn'/,
+    /one of: 'none', 'fail', or 'warn'/,
   );
 });
 

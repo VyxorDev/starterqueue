@@ -50,6 +50,7 @@ runs:
       env:
         STARTERQUEUE_REPOSITORY: ${{ inputs.repository }}
         STARTERQUEUE_TOKEN: ${{ inputs.token }}
+        STARTERQUEUE_GITHUB_TOKEN: ${{ github.token }}
         STARTERQUEUE_LABEL: ${{ inputs.label }}
         STARTERQUEUE_STALE_DAYS: ${{ inputs.stale-days }}
         STARTERQUEUE_FAIL_ON: ${{ inputs.fail-on }}
@@ -87,6 +88,8 @@ runs:
 
         if [[ -n "$STARTERQUEUE_TOKEN" ]]; then
           export GH_TOKEN="$STARTERQUEUE_TOKEN"
+        elif [[ "$repository" == "$GITHUB_REPOSITORY" && -n "$STARTERQUEUE_GITHUB_TOKEN" ]]; then
+          export GH_TOKEN="$STARTERQUEUE_GITHUB_TOKEN"
         else
           unset GH_TOKEN || true
         fi

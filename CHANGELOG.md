@@ -2,6 +2,23 @@
 
 All notable changes to StarterQueue are documented here.
 
+## [0.2.1] - 2026-10-24
+
+StarterQueue v0.2.1 fixes two correctness gaps found during real-world validation without changing any audit rule semantics.
+
+### Fixed
+
+- The CLI now accepts an explicit `--fail-on none`, matching the existing `FailOn` type and default behavior.
+- CLI help now documents `none`, `fail`, and `warn` consistently.
+- The GitHub Action now automatically uses `${{ github.token }}` when auditing the current workflow repository and no explicit `token` input is provided, so authenticated `SQ004` closing-PR detection is not silently skipped in the common same-repository case.
+- Cross-repository audits still require an explicit token when authenticated access is needed; the Action does not force the current repository token onto a different target repository.
+- CI now exercises the Action's automatic current-repository token fallback.
+
+### Compatibility
+
+- Audit rules `SQ001`–`SQ009`, default severities, exit codes, and JSON `schema_version: 1` are unchanged.
+- StarterQueue remains read-only.
+
 ## [0.2.0] - 2026-10-23
 
 StarterQueue v0.2.0 adds a first-class reusable GitHub Action while preserving the existing CLI and audit semantics.
