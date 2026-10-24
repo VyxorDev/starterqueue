@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { parseAuditOptions } from "./args.js";
+import { runTui } from "./tui.js";
 import { auditIssues } from "./audit.js";
 import { auditExitCode, EXIT_TOOL_ERROR } from "./exit.js";
 import { fetchStarterIssues, parseRepo } from "./github.js";
@@ -12,6 +13,7 @@ function usage(): string {
     "StarterQueue",
     "",
     "Usage:",
+    "  starterqueue                     Open the interactive terminal UI (TTY only)",
     "  starterqueue audit <owner/repo> [--json] [--label <name>] [--stale-days <days>] [--policy <balanced|strict>] [--rule-level <SQ###=warn|fail>] [--fail-on <none|fail|warn>]",
     "",
     "Options:",
@@ -55,6 +57,22 @@ function printText(results: AuditedIssue[], label: string): void {
 
 async function main(): Promise<void> {
   const [, , command, repoInput, ...rest] = process.argv;
+
+  if (!command) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.error("starterqueue: Interactive mode requires a terminal. Use starterqueue audit owner/repo for scripts and CI.");
+      console.error(usage());
+      process.exitCode = EXIT_TOOL_ERROR;
+      return;
+    }
+    await runTui();
+    return;
+  }
+
+  if (command === "--help" || command === "-h" || command === "help") {
+    console.log(usage());
+    return;
+  }
 
   if (command !== "audit" || !repoInput) {
     console.error(usage());
